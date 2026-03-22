@@ -177,7 +177,12 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     }
 
     // Merge provider options (e.g. thinking config, cache control)
-    const anthropicOptions = options.providerOptions?.anthropic as Record<string, any> | undefined
+    // OpenCode sends providerOptions keyed by providerID ("anthropic-sdk"),
+    // but also check "anthropic" for direct AI SDK usage
+    const anthropicOptions = (
+      options.providerOptions?.["anthropic-sdk"]
+      ?? options.providerOptions?.anthropic
+    ) as Record<string, any> | undefined
     if (anthropicOptions) {
       // Handle thinking config — map AI SDK format to Anthropic SDK format
       if (anthropicOptions.thinking) {
