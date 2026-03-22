@@ -203,8 +203,6 @@ export class AgentSDKModel implements LanguageModelV2 {
     system: string | undefined,
     tools: LanguageModelV2CallOptions["tools"],
   ): Session {
-    const mcpServer = buildMcpServer(tools)
-
     const opts: any = {
       model: this.modelId,
       maxTurns: 100,
@@ -217,8 +215,6 @@ export class AgentSDKModel implements LanguageModelV2 {
       // Disable Claude Code's built-in tools — OpenCode provides its own
       tools: [] as string[],
     }
-
-    if (mcpServer) opts.mcpServers = { [MCP_SERVER_NAME]: mcpServer }
 
     return unstable_v2_createSession(opts)
   }
