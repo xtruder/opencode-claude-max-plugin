@@ -423,6 +423,123 @@ await test("createAnthropicSDK falls back to Claude Code credentials", async () 
   }
 })
 
+// ─── Test 14: doStream with thinking (extended thinking + signature) ──────────
+await test("doStream with thinking produces reasoning events with signature", async () => {
+  // Use Sonnet which supports thinking
+  const thinkingModel = provider.languageModel("claude-sonnet-4-6")
+  const result = await thinkingModel.doStream({
+    prompt: [
+      { role: "user", content: [{ type: "text", text: "What is 7 * 8?" }] },
+    ],
+    maxOutputTokens: 4096,
+    providerOptions: {
+      anthropic: {
+        thinking: { type: "enabled", budgetTokens: 5000 },
+      },
+    },
+  } as any)
+
+  const reader = result.stream.getReader()
+  const eventTypes = new Set<string>()
+  let hasSignature = false
+  let reasoningText = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    eventTypes.add(value.type)
+    if (value.type === "reasoning-delta") {
+      reasoningText += (value as any).delta
+    }
+    if (value.type === "reasoning-end") {
+      const sig = (value as any).providerMetadata?.anthropic?.signature
+      if (sig && sig.length > 0) hasSignature = true
+    }
+  }
+
+  assert(eventTypes.has("reasoning-start"), "should have reasoning-start event")
+  assert(eventTypes.has("reasoning-delta"), "should have reasoning-delta events")
+  assert(eventTypes.has("reasoning-end"), "should have reasoning-end event")
+  assert(eventTypes.has("text-delta"), "should have text-delta events")
+  assert(reasoningText.length > 0, "reasoning text should not be empty")
+  assert(hasSignature, "reasoning-end should include signature in providerMetadata")
+  console.log(`        Event types: ${[...eventTypes].join(", ")}`)
+  console.log(`        Reasoning length: ${reasoningText.length} chars`)
+  console.log(`        Signature present: true`)
+})
+
+// ─── Test 15: doGenerate with thinking returns reasoning content ──────────────
+await test("doGenerate with thinking returns reasoning content with signature", async () => {
+  const thinkingModel = provider.languageModel("claude-sonnet-4-6")
+  const result = await thinkingModel.doGenerate({
+    prompt: [
+      { role: "user", content: [{ type: "text", text: "What is 12 * 12?" }] },
+    ],
+    maxOutputTokens: 4096,
+    providerOptions: {
+      anthropic: {
+        thinking: { type: "enabled", budgetTokens: 5000 },
+      },
+    },
+  } as any)
+
+  const reasoning = result.content.filter((c) => c.type === "reasoning")
+  const text = result.content.find((c) => c.type === "text")
+
+  assert(reasoning.length > 0, "should contain reasoning content")
+  assert((reasoning[0] as any).text.length > 0, "reasoning text should not be empty")
+  assert(text != null, "should contain text content")
+
+  const sig = (reasoning[0] as any).providerMetadata?.anthropic?.signature
+  assert(sig && sig.length > 0, "reasoning should include signature in providerMetadata")
+
+  console.log(`        Reasoning: "${(reasoning[0] as any).text.slice(0, 80)}..."`)
+  console.log(`        Answer: "${(text as any).text.trim().slice(0, 50)}"`)
+  console.log(`        Signature: ${sig?.slice(0, 30)}...`)
+})
+
+// ─── Test 16: thinking signature roundtrip in conversation history ────────────
+await test("thinking signature survives conversation roundtrip", async () => {
+  const thinkingModel = provider.languageModel("claude-sonnet-4-6")
+
+  // First turn: get a response with thinking
+  const first = await thinkingModel.doGenerate({
+    prompt: [
+      { role: "user", content: [{ type: "text", text: "What is 3 + 4?" }] },
+    ],
+    maxOutputTokens: 4096,
+    providerOptions: {
+      anthropic: {
+        thinking: { type: "enabled", budgetTokens: 5000 },
+      },
+    },
+  } as any)
+
+  // Second turn: send the thinking back in history — this should NOT error
+  const result = await thinkingModel.doGenerate({
+    prompt: [
+      { role: "user", content: [{ type: "text", text: "What is 3 + 4?" }] },
+      { role: "assistant", content: first.content },
+      { role: "user", content: [{ type: "text", text: "And what is that times 2?" }] },
+    ],
+    maxOutputTokens: 4096,
+    providerOptions: {
+      anthropic: {
+        thinking: { type: "enabled", budgetTokens: 5000 },
+      },
+    },
+  } as any)
+
+  const text = result.content.find((c) => c.type === "text")
+  assert(text != null, "should get a response in second turn")
+  assert(
+    (text as any).text.includes("14"),
+    `second turn should reference 14, got: "${(text as any).text.trim().slice(0, 80)}"`,
+  )
+  console.log(`        Second turn: "${(text as any).text.trim().slice(0, 80)}"`)
+  console.log(`        Signature roundtrip: success (no API error)`)
+})
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`)
 console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`)
