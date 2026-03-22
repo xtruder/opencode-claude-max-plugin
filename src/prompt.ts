@@ -92,7 +92,7 @@ function convertAssistantMessage(
           content.push({ type: "text", text: part.text })
         }
         break
-      case "reasoning":
+      case "reasoning": {
         // Map reasoning to Anthropic thinking blocks
         // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
         // or providerOptions (set by the caller)
@@ -105,13 +105,11 @@ function convertAssistantMessage(
             thinking: part.text,
             signature,
           } as any)
-        } else {
-          // No signature — use redacted thinking block to avoid API error
-          content.push({
-            type: "redacted_thinking",
-            data: "",
-          } as any)
         }
+        // No signature → skip the block entirely. Anthropic rejects both
+        // empty signatures and empty redacted_thinking data.
+        break
+      }
         break
       case "tool-call":
         content.push({
