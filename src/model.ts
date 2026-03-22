@@ -140,7 +140,17 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     // Merge provider options (e.g. thinking config, cache control)
     const anthropicOptions = options.providerOptions?.anthropic as Record<string, any> | undefined
     if (anthropicOptions) {
-      if (anthropicOptions.thinking) params.thinking = anthropicOptions.thinking
+      // Handle thinking config — map AI SDK format to Anthropic SDK format
+      if (anthropicOptions.thinking) {
+        const t = anthropicOptions.thinking
+        if (t.type === "enabled" && t.budgetTokens) {
+          params.thinking = { type: "enabled", budget_tokens: t.budgetTokens }
+        } else if (t.type === "adaptive") {
+          params.thinking = { type: "enabled", budget_tokens: 10000 }
+        } else {
+          params.thinking = t
+        }
+      }
       if (anthropicOptions.metadata) params.metadata = anthropicOptions.metadata
     }
 

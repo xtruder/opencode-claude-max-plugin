@@ -14,6 +14,8 @@ interface ContentBlockState {
   toolUseId?: string
   toolName?: string
   argsText?: string
+  // thinking specific
+  signature?: string
 }
 
 let idCounter = 0
@@ -150,6 +152,9 @@ function processEvent(
           id: state.id,
           delta: delta.thinking,
         })
+      } else if (delta.type === "signature_delta" && state.type === "thinking") {
+        // Accumulate signature for the thinking block
+        state.signature = (state.signature ?? "") + delta.signature
       } else if (delta.type === "input_json_delta" && state.type === "tool_use") {
         state.argsText = (state.argsText ?? "") + delta.partial_json
         parts.push({
@@ -169,7 +174,13 @@ function processEvent(
       if (state.type === "text") {
         parts.push({ type: "text-end", id: state.id })
       } else if (state.type === "thinking") {
-        parts.push({ type: "reasoning-end", id: state.id })
+        parts.push({
+          type: "reasoning-end",
+          id: state.id,
+          ...(state.signature ? {
+            providerMetadata: { anthropic: { signature: state.signature } },
+          } : {}),
+        })
       } else if (state.type === "tool_use") {
         parts.push({ type: "tool-input-end", id: state.id })
         // Emit the complete tool call
