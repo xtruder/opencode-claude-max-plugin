@@ -1,13 +1,34 @@
 # opencode-anthropic-sdk-provider
 
-A custom [OpenCode](https://opencode.ai/) / [Vercel AI SDK](https://sdk.vercel.ai/) provider that uses the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) package directly for Claude model API calls, bypassing the Vercel-maintained `@ai-sdk/anthropic` wrapper.
+A custom [OpenCode](https://opencode.ai/) / [Vercel AI SDK](https://sdk.vercel.ai/) provider for Claude models. Includes two provider variants:
 
-## Why?
+1. **Standard SDK Provider** (default) — Uses the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) for API calls
+2. **Agent SDK Provider** (agent) — Uses [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/anthropic-sdk-python) for integration with Claude Code
 
-- **Claude subscription support** — Automatically reads OAuth credentials from Claude Code (`~/.claude/.credentials.json`), so you can use your Claude Pro/Max subscription without a separate API key.
-- **Direct SDK access** — Uses the official Anthropic TypeScript SDK, the sanctioned way to access Claude models with an Anthropic subscription.
-- **Latest Anthropic features** — Enables beta features like interleaved thinking and fine-grained tool streaming out of the box.
-- **Full LanguageModelV2 compatibility** — Drop-in replacement for any AI SDK-compatible framework.
+## Choosing a Provider
+
+### Standard SDK Provider (`createAnthropicSDK`)
+Use for general-purpose Claude API access with full feature support:
+- Full tool/function calling with streaming
+- Extended thinking (reasoning)
+- Image inputs and prompt caching
+- Works outside Claude Code environment
+- Requires API key or Claude Code credentials
+
+### Agent SDK Provider (`createAgentSDK`)
+Use for integration with Claude Code where context is valuable:
+- Runs within Claude Code environment
+- Automatic OAuth authentication
+- Access to Claude Code's tools and context
+- Better for code-related tasks
+- Designed for interactive use within Claude Code
+
+## Why These Providers?
+
+- **Claude subscription support** — Automatically reads OAuth credentials from Claude Code (`~/.claude/.credentials.json`)
+- **Direct SDK access** — Uses the official Anthropic SDKs, the sanctioned way to access Claude
+- **Latest Anthropic features** — Enables beta features like interleaved thinking and fine-grained tool streaming
+- **Full LanguageModelV2 compatibility** — Drop-in replacement for any AI SDK-compatible framework
 
 ## Installation
 
@@ -29,7 +50,7 @@ For Claude Code credentials, log in via `claude` CLI first. The OAuth token (`sk
 
 ## Usage
 
-### With Vercel AI SDK
+### Standard SDK Provider (Default)
 
 ```typescript
 import { createAnthropicSDK } from "opencode-anthropic-sdk-provider";
@@ -47,6 +68,27 @@ for await (const chunk of result.textStream) {
 
 // Non-streaming
 const { text } = await generateText({ model, prompt: "Hello!" });
+console.log(text);
+```
+
+### Agent SDK Provider (For Claude Code)
+
+```typescript
+import { createAgentSDK } from "opencode-anthropic-sdk-provider/agent";
+import { streamText, generateText } from "ai";
+
+// Works within Claude Code environment
+const provider = createAgentSDK();
+const model = provider.languageModel("claude-haiku-4-5-20251001");
+
+// Streaming
+const result = streamText({ model, prompt: "What files are here?" });
+for await (const chunk of result.textStream) {
+  process.stdout.write(chunk);
+}
+
+// Non-streaming
+const { text } = await generateText({ model, prompt: "Summarize this directory" });
 console.log(text);
 ```
 
@@ -126,6 +168,7 @@ The following models are available via the Anthropic API. Model availability dep
 
 ## Project Structure
 
+### Standard SDK Provider
 ```
 src/
 ├── index.ts        # Provider factory, auth resolution, and exports
@@ -135,6 +178,14 @@ src/
 ├── tools.ts        # AI SDK tool definitions → Anthropic tool format converter
 ├── credentials.ts  # Claude Code credentials reader (~/.claude/.credentials.json)
 └── test.ts         # Integration tests (13 tests)
+```
+
+### Agent SDK Provider
+```
+src/
+├── agent-index.ts   # Agent SDK provider factory and exports
+├── agent-model.ts   # LanguageModelV2 implementation using Agent SDK session
+└── agent-test.ts    # Integration tests (4 tests)
 ```
 
 ## Development
