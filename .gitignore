@@ -1,0 +1,5 @@
+node_modules/
+build/
+opencode-ref/
+.env
+bun.lock
