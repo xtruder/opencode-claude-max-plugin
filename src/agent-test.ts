@@ -92,7 +92,7 @@ await test("doStream produces text events", async () => {
 // ─── Test 5: streamText integration ──────────────────────────────────────────
 await test("works with AI SDK streamText()", async () => {
   // Create a fresh model instance for this test to avoid context accumulation
-  const freshModel = provider.languageModel("claude-haiku-4-5-20251001")
+  const freshModel = getModel()
   const result = streamText({
     model: freshModel,
     prompt: "What is 2 + 2?",
@@ -111,7 +111,7 @@ await test("works with AI SDK streamText()", async () => {
 // ─── Test 6: generateText integration ────────────────────────────────────────
 await test("works with AI SDK generateText()", async () => {
   // Create a fresh model instance for this test
-  const freshModel = provider.languageModel("claude-haiku-4-5-20251001")
+  const freshModel = getModel()
   const result = await generateText({
     model: freshModel,
     prompt: "What is the capital of France?",
@@ -126,8 +126,5 @@ await test("works with AI SDK generateText()", async () => {
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`)
 console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`)
-
-// Cleanup — close any open sessions
-;(model as any).close?.()
 
 if (failed > 0) process.exit(1)
