@@ -1,7 +1,7 @@
 {
   "name": "opencode-anthropic-sdk-provider",
   "version": "0.1.0",
-  "description": "OpenCode provider that uses @anthropic-ai/sdk directly for Claude model access",
+  "description": "OpenCode providers for Claude models - standard SDK and Agent SDK variants",
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -9,13 +9,17 @@
     ".": {
       "import": "./build/index.js",
       "types": "./build/index.d.ts"
+    },
+    "./agent": {
+      "import": "./build/agent-index.js",
+      "types": "./build/agent-index.d.ts"
     }
   },
   "files": [
     "build"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
+    "build": "bun build ./src/index.ts ./src/agent-index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
     "test": "bun run src/test.ts"
   },
   "dependencies": {
