@@ -12,9 +12,48 @@ import { convertTools, convertToolChoice } from "./tools.js"
 import { convertStream } from "./stream.js"
 import { toOpencodeToolName } from "./tool-names.js"
 import { randomBytes, createHash } from "node:crypto"
+import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 
 type DoGenerateResult = Awaited<ReturnType<LanguageModelV2["doGenerate"]>>
 type DoStreamResult = Awaited<ReturnType<LanguageModelV2["doStream"]>>
+
+/**
+ * Handle Anthropic API errors with clear messages.
+ *
+ * Subscription rate limits ("you've hit your limit") can last minutes/hours
+ * and are distinct from transient API rate limits. The SDK retries
+ * automatically on transient 429s — if we still get one here, it's likely
+ * a subscription limit.
+ */
+function handleApiError(error: unknown): never {
+  if (error instanceof RateLimitError || (error instanceof APIError && error.status === 429)) {
+    const msg = (error as any).error?.error?.message ?? error.message ?? ""
+    const retryAfter = (error.headers as any)?.get?.("retry-after")
+      ?? (error.headers as any)?.["retry-after"]
+
+    // Check if this is a subscription/account limit vs transient rate limit
+    const isSubscriptionLimit = msg.includes("account")
+      || msg.includes("limit")
+      || msg.includes("exceeded")
+      || (retryAfter && parseInt(retryAfter) > 60)
+
+    if (isSubscriptionLimit) {
+      const resetInfo = retryAfter ? ` Resets in ~${Math.ceil(parseInt(retryAfter) / 60)} minutes.` : ""
+      throw new Error(
+        `Claude subscription rate limit reached.${resetInfo} ` +
+        `Use /rate-limit-options in Claude Code to check your options, ` +
+        `or wait for your limit to reset.`
+      )
+    }
+
+    // Transient rate limit — the SDK already retried, still failing
+    throw new Error(
+      `Anthropic API rate limit exceeded after retries. ` +
+      (retryAfter ? `Retry after ${retryAfter}s.` : `Please try again shortly.`)
+    )
+  }
+  throw error
+}
 
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV2FinishReason {
   switch (stopReason) {
@@ -160,12 +199,17 @@ export class AnthropicSDKModel implements LanguageModelV2 {
   async doGenerate(options: LanguageModelV2CallOptions): Promise<DoGenerateResult> {
     const { params, warnings } = this.buildParams(options)
 
-    const response = await this.client.messages.create({
-      ...params,
-      stream: false,
-    } as Anthropic.MessageCreateParamsNonStreaming,
-      { signal: options.abortSignal },
-    ) as Anthropic.Message
+    let response: Anthropic.Message
+    try {
+      response = await this.client.messages.create({
+        ...params,
+        stream: false,
+      } as Anthropic.MessageCreateParamsNonStreaming,
+        { signal: options.abortSignal },
+      ) as Anthropic.Message
+    } catch (error) {
+      handleApiError(error)
+    }
 
     const content: LanguageModelV2Content[] = []
 
@@ -219,12 +263,17 @@ export class AnthropicSDKModel implements LanguageModelV2 {
   async doStream(options: LanguageModelV2CallOptions): Promise<DoStreamResult> {
     const { params, warnings } = this.buildParams(options)
 
-    const anthropicStream = await this.client.messages.create({
-      ...params,
-      stream: true,
-    } as Anthropic.MessageCreateParamsStreaming,
-      { signal: options.abortSignal },
-    )
+    let anthropicStream
+    try {
+      anthropicStream = await this.client.messages.create({
+        ...params,
+        stream: true,
+      } as Anthropic.MessageCreateParamsStreaming,
+        { signal: options.abortSignal },
+      )
+    } catch (error) {
+      handleApiError(error)
+    }
 
     const stream = convertStream(anthropicStream as any, this.modelId)
 

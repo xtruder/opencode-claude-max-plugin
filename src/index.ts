@@ -142,12 +142,40 @@ export function createAnthropicSDK(
     defaultHeaders["x-stainless-package-version"] = "0.74.0"
   }
 
+  /**
+   * Max retry-after (in seconds) before we consider it a subscription limit
+   * and stop retrying. Anything above this is likely "you've hit your daily
+   * limit" rather than a transient overload.
+   */
+  const SUBSCRIPTION_LIMIT_THRESHOLD = 120
+
+  // Wrap fetch to detect subscription rate limits (429 with long retry-after)
+  // and tell the SDK not to retry by setting x-should-retry: false.
+  const baseFetch = customFetch ?? globalThis.fetch
+  const wrappedFetch = async (url: string | URL | Request, init?: RequestInit) => {
+    const resp = await baseFetch(url, init)
+    if (resp.status === 429) {
+      const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
+      if (retryAfter > SUBSCRIPTION_LIMIT_THRESHOLD) {
+        // Subscription limit — don't let the SDK retry for hours
+        const headers = new Headers(resp.headers)
+        headers.set("x-should-retry", "false")
+        return new Response(resp.body, {
+          status: resp.status,
+          statusText: resp.statusText,
+          headers,
+        })
+      }
+    }
+    return resp
+  }
+
   const client = new Anthropic({
     apiKey: auth.apiKey ?? null,
     authToken: auth.authToken ?? null,
     baseURL,
     defaultHeaders,
-    fetch: customFetch,
+    fetch: wrappedFetch as any,
   })
 
   return {
