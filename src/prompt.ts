@@ -1,5 +1,6 @@
 import type { LanguageModelV2Prompt, LanguageModelV2Message } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { toClaudeToolName } from "./tool-names.js"
 
 type AnthropicMessage = Anthropic.MessageCreateParams["messages"][number]
 type AnthropicContentBlock = Anthropic.ContentBlockParam
@@ -104,7 +105,7 @@ function convertAssistantMessage(
         content.push({
           type: "tool_use",
           id: part.toolCallId,
-          name: part.toolName,
+          name: toClaudeToolName(part.toolName),
           input: typeof part.input === "string" ? JSON.parse(part.input as string) : part.input,
         })
         break

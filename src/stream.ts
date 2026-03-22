@@ -3,6 +3,7 @@ import type {
   LanguageModelV2FinishReason,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { toOpencodeToolName } from "./tool-names.js"
 
 type MessageStreamEvent = Anthropic.MessageStreamEvent
 
@@ -113,17 +114,18 @@ function processEvent(
         // so tool-input-start `id` matches tool-call `toolCallId`
         // (OpenCode's processor correlates them via this shared ID)
         const toolId = block.id as string
+        const toolName = toOpencodeToolName(block.name as string)
         blockStates.set(index, {
           type: "tool_use",
           id: toolId,
           toolUseId: toolId,
-          toolName: block.name,
+          toolName,
           argsText: "",
         })
         parts.push({
           type: "tool-input-start",
           id: toolId,
-          toolName: block.name,
+          toolName,
         })
       }
       break

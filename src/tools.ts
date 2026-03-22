@@ -4,6 +4,7 @@ import type {
   LanguageModelV2ToolChoice,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { toClaudeToolName } from "./tool-names.js"
 
 type AnthropicTool = Anthropic.Tool
 type AnthropicToolChoice = Anthropic.MessageCreateParams["tool_choice"]
@@ -38,7 +39,7 @@ export function convertTools(
   return tools
     .filter((t): t is LanguageModelV2FunctionTool => t.type === "function")
     .map((tool) => ({
-      name: tool.name,
+      name: toClaudeToolName(tool.name),
       description: tool.description ?? "",
       input_schema: cleanSchema(tool.inputSchema as Record<string, any>) as AnthropicTool["input_schema"],
     }))
@@ -58,6 +59,6 @@ export function convertToolChoice(
       // Anthropic doesn't have a "none" tool choice — we handle this by omitting tools
       return undefined
     case "tool":
-      return { type: "tool", name: toolChoice.toolName }
+      return { type: "tool", name: toClaudeToolName(toolChoice.toolName) }
   }
 }

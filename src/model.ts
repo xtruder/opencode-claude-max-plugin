@@ -10,6 +10,8 @@ import type Anthropic from "@anthropic-ai/sdk"
 import { convertPrompt } from "./prompt.js"
 import { convertTools, convertToolChoice } from "./tools.js"
 import { convertStream } from "./stream.js"
+import { toOpencodeToolName } from "./tool-names.js"
+import { randomBytes, createHash } from "node:crypto"
 
 type DoGenerateResult = Awaited<ReturnType<LanguageModelV2["doGenerate"]>>
 type DoStreamResult = Awaited<ReturnType<LanguageModelV2["doStream"]>>
@@ -37,6 +39,20 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV2
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
   text: "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;",
+}
+
+/**
+ * Generate a device_id-like hash for the metadata user_id field.
+ * Claude Code sends a deterministic device hash; we generate a stable one per process.
+ */
+const DEVICE_ID = createHash("sha256")
+  .update(randomBytes(32))
+  .digest("hex")
+
+function buildMetadata(): { user_id: string } {
+  return {
+    user_id: JSON.stringify({ device_id: DEVICE_ID }),
+  }
 }
 
 export class AnthropicSDKModel implements LanguageModelV2 {
@@ -84,11 +100,10 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       messages,
     }
 
-    // For OAuth subscription tokens, inject the billing system block
-    // that Anthropic requires for access to non-Haiku models
+    // For OAuth subscription tokens, match Claude Code's request structure
     if (this.isOAuth) {
+      // Prepend billing block to system content
       if (system) {
-        // Prepend billing block to existing system content
         const systemBlocks = typeof system === "string"
           ? [BILLING_SYSTEM_BLOCK, { type: "text" as const, text: system }]
           : [BILLING_SYSTEM_BLOCK, ...(Array.isArray(system) ? system : [system])]
@@ -96,9 +111,23 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       } else {
         params.system = [BILLING_SYSTEM_BLOCK]
       }
+
+      // Claude Code always sends metadata with user_id
+      params.metadata = buildMetadata()
+
+      // Claude Code sends temperature: 1 and output_config for models that support it
+      // Haiku and older models don't support the effort parameter
+      const supportsEffort = !this.modelId.includes("haiku") && !this.modelId.includes("claude-3-")
+      if (supportsEffort) {
+        if (options.temperature == null) {
+          params.temperature = 1
+        }
+        params.output_config = { effort: "medium" }
+      }
     } else if (system) {
       params.system = system
     }
+
     if (tools && tools.length > 0) params.tools = tools
     if (toolChoice) params.tool_choice = toolChoice
     if (options.temperature != null) params.temperature = options.temperature
@@ -111,7 +140,6 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     // Merge provider options (e.g. thinking config, cache control)
     const anthropicOptions = options.providerOptions?.anthropic as Record<string, any> | undefined
     if (anthropicOptions) {
-      // Pass through known Anthropic-specific options
       if (anthropicOptions.thinking) params.thinking = anthropicOptions.thinking
       if (anthropicOptions.metadata) params.metadata = anthropicOptions.metadata
     }
@@ -140,12 +168,11 @@ export class AnthropicSDKModel implements LanguageModelV2 {
           content.push({
             type: "tool-call",
             toolCallId: block.id,
-            toolName: block.name,
+            toolName: toOpencodeToolName(block.name),
             input: JSON.stringify(block.input),
           })
           break
         default: {
-          // Handle thinking blocks
           const anyBlock = block as any
           if (anyBlock.type === "thinking" && anyBlock.thinking) {
             content.push({
@@ -191,7 +218,6 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     const stream = convertStream(anthropicStream as any, this.modelId)
 
-    // Prepend stream-start with warnings
     const wrappedStream = new ReadableStream<LanguageModelV2StreamPart>({
       async start(controller) {
         controller.enqueue({

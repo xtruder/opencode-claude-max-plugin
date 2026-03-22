@@ -3,6 +3,33 @@ import { AnthropicSDKModel } from "./model.js"
 import { readClaudeCredentials, isExpired } from "./credentials.js"
 import type { LanguageModelV2 } from "@ai-sdk/provider"
 
+/**
+ * Claude Code CLI version to impersonate.
+ * Used in user-agent, billing header, and x-stainless-package-version.
+ */
+const CLAUDE_CODE_VERSION = "2.1.81"
+
+/**
+ * Beta flags that Claude Code sends on every OAuth request.
+ * Order and exact values must match what Claude Code sends.
+ */
+const OAUTH_BETAS = [
+  "claude-code-20250219",
+  "oauth-2025-04-20",
+  "interleaved-thinking-2025-05-14",
+  "context-management-2025-06-27",
+  "prompt-caching-scope-2026-01-05",
+  "effort-2025-11-24",
+]
+
+/**
+ * Beta flags for regular API key auth (no OAuth).
+ */
+const API_KEY_BETAS = [
+  "interleaved-thinking-2025-05-14",
+  "fine-grained-tool-streaming-2025-05-14",
+]
+
 export interface AnthropicSDKProviderOptions {
   /**
    * Anthropic API key. Defaults to ANTHROPIC_API_KEY env var.
@@ -48,22 +75,6 @@ export interface AnthropicSDKProvider {
   languageModel(modelId: string): LanguageModelV2
 }
 
-/**
- * Resolve authentication: API key, explicit auth token, or Claude Code credentials.
- *
- * Priority order:
- * 1. Explicit apiKey option
- * 2. ANTHROPIC_API_KEY env var
- * 3. Explicit authToken option
- * 4. Claude Code credentials file (~/.claude/.credentials.json)
- */
-/**
- * The beta flag that enables OAuth token authentication on the Anthropic API.
- * Without this, Bearer tokens are rejected with "OAuth authentication is
- * currently not supported". Claude Code sends this on every OAuth request.
- */
-const OAUTH_BETA = "oauth-2025-04-20"
-
 function resolveAuth(options: AnthropicSDKProviderOptions): {
   apiKey?: string | null
   authToken?: string | null
@@ -80,8 +91,6 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
   }
 
   // 3. Claude Code credentials file
-  // OAuth tokens must be sent as Authorization: Bearer with the
-  // "oauth-2025-04-20" beta header — this is how Claude Code does it.
   const creds = readClaudeCredentials(options.credentialsPath)
   if (creds) {
     if (isExpired(creds)) {
@@ -93,20 +102,15 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
     return { apiKey: null, authToken: creds.accessToken, isOAuth: true }
   }
 
-  // No auth found — let the SDK handle the error
   return { isOAuth: false }
 }
 
 /**
  * Create an Anthropic SDK provider for use with OpenCode / Vercel AI SDK.
  *
- * This provider uses @anthropic-ai/sdk directly for all API calls,
- * which is the officially sanctioned way to access Claude models
- * with an Anthropic subscription.
- *
- * Authentication (in priority order):
-   * 1. `apiKey` option or `ANTHROPIC_API_KEY` env var
-   * 2. Auto-read from Claude Code credentials (~/.claude/.credentials.json)
+ * When using OAuth credentials from Claude Code, requests are made to
+ * look identical to Claude Code CLI requests — same headers, user-agent,
+ * beta flags, billing system block, and body structure.
  */
 export function createAnthropicSDK(
   options: AnthropicSDKProviderOptions = {},
@@ -123,21 +127,26 @@ export function createAnthropicSDK(
 
   const auth = resolveAuth(options)
 
-  const betaFlags = [
-    "interleaved-thinking-2025-05-14",
-    "fine-grained-tool-streaming-2025-05-14",
-    // Required for OAuth Bearer tokens to work with all models
-    ...(auth.isOAuth ? [OAUTH_BETA, "claude-code-20250219"] : []),
-  ].join(",")
+  // Match Claude Code's exact header set for OAuth
+  const defaultHeaders: Record<string, string> = {
+    ...headers,
+    "anthropic-beta": (auth.isOAuth ? OAUTH_BETAS : API_KEY_BETAS).join(","),
+  }
+
+  if (auth.isOAuth) {
+    // Match Claude Code's exact user-agent and headers
+    defaultHeaders["user-agent"] = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`
+    defaultHeaders["x-app"] = "cli"
+    defaultHeaders["anthropic-dangerous-direct-browser-access"] = "true"
+    // Override x-stainless version to match Claude Code's bundled SDK
+    defaultHeaders["x-stainless-package-version"] = "0.74.0"
+  }
 
   const client = new Anthropic({
     apiKey: auth.apiKey ?? null,
     authToken: auth.authToken ?? null,
     baseURL,
-    defaultHeaders: {
-      ...headers,
-      "anthropic-beta": betaFlags,
-    },
+    defaultHeaders,
     fetch: customFetch,
   })
 
