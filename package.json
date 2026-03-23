@@ -1,7 +1,7 @@
 {
-  "name": "opencode-anthropic-sdk-provider",
+  "name": "@xtruder/opencode-claude-max-plugin",
   "version": "0.1.0",
-  "description": "OpenCode providers for Claude models - standard SDK and Agent SDK variants",
+  "description": "OpenCode plugin for Claude Max/Pro subscription via @anthropic-ai/sdk - uses Claude Code OAuth credentials",
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",

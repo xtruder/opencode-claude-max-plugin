@@ -1,213 +1,98 @@
-# opencode-anthropic-sdk-provider
+# @xtruder/opencode-claude-max-plugin
 
-A custom [OpenCode](https://opencode.ai/) / [Vercel AI SDK](https://sdk.vercel.ai/) provider for Claude models. Includes two provider variants:
+An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscription access via the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript), using OAuth credentials from Claude Code (`~/.claude/.credentials.json`).
 
-1. **Standard SDK Provider** (default) — Uses the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) for API calls
-2. **Agent SDK Provider** (agent) — Uses [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/anthropic-sdk-python) for integration with Claude Code
+## Why?
 
-## Choosing a Provider
-
-### Standard SDK Provider (`createAnthropicSDK`)
-Use for general-purpose Claude API access with full feature support:
-- Full tool/function calling with streaming
-- Extended thinking (reasoning)
-- Image inputs and prompt caching
-- Works outside Claude Code environment
-- Requires API key or Claude Code credentials
-
-### Agent SDK Provider (`createAgentSDK`)
-Use for integration with Claude Code where context is valuable:
-- Runs within Claude Code environment
-- Automatic OAuth authentication
-- Access to Claude Code's tools and context
-- Better for code-related tasks
-- Designed for interactive use within Claude Code
-
-## Why These Providers?
-
-- **Claude subscription support** — Automatically reads OAuth credentials from Claude Code (`~/.claude/.credentials.json`)
-- **Direct SDK access** — Uses the official Anthropic SDKs, the sanctioned way to access Claude
-- **Latest Anthropic features** — Enables beta features like interleaved thinking and fine-grained tool streaming
-- **Full LanguageModelV2 compatibility** — Drop-in replacement for any AI SDK-compatible framework
+- **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
+- **Matches Claude Code exactly** — Same headers, billing, tool names, and request format as Claude Code CLI
+- **Prompt caching** — 98% of input tokens served from cache (system prompt + tools cached globally)
+- **All Claude models** — Opus 4.6, Sonnet 4.6, Sonnet 4.5, Haiku 4.5, and more
+- **Extended thinking** — Full reasoning support with signature passthrough
+- **Usage tracking** — Built-in `/usage` command shows subscription utilization
 
 ## Installation
 
 ```bash
-npm install opencode-anthropic-sdk-provider
+npm install @xtruder/opencode-claude-max-plugin
 # or
-bun add opencode-anthropic-sdk-provider
+bun add @xtruder/opencode-claude-max-plugin
 ```
 
-## Authentication
-
-The provider resolves credentials in the following order:
-
-1. **Explicit `apiKey` option** passed to `createAnthropicSDK()`
-2. **`ANTHROPIC_API_KEY` environment variable**
-3. **Claude Code credentials** — auto-read from `~/.claude/.credentials.json`
-
-For Claude Code credentials, log in via `claude` CLI first. The OAuth token (`sk-ant-oat01-...`) is sent via `x-api-key` header.
-
-## Usage
-
-### Standard SDK Provider (Default)
-
-```typescript
-import { createAnthropicSDK } from "opencode-anthropic-sdk-provider";
-import { streamText, generateText } from "ai";
-
-// Uses ANTHROPIC_API_KEY or ~/.claude/.credentials.json automatically
-const provider = createAnthropicSDK();
-const model = provider.languageModel("claude-sonnet-4-6");
-
-// Streaming
-const result = streamText({ model, prompt: "Hello!" });
-for await (const chunk of result.textStream) {
-  process.stdout.write(chunk);
-}
-
-// Non-streaming
-const { text } = await generateText({ model, prompt: "Hello!" });
-console.log(text);
-```
-
-### Agent SDK Provider (For Claude Code)
-
-```typescript
-import { createAgentSDK } from "opencode-anthropic-sdk-provider/agent";
-import { streamText, generateText } from "ai";
-
-// Works within Claude Code environment
-const provider = createAgentSDK();
-const model = provider.languageModel("claude-haiku-4-5-20251001");
-
-// Streaming
-const result = streamText({ model, prompt: "What files are here?" });
-for await (const chunk of result.textStream) {
-  process.stdout.write(chunk);
-}
-
-// Non-streaming
-const { text } = await generateText({ model, prompt: "Summarize this directory" });
-console.log(text);
-```
+## Quick Start
 
 ### With OpenCode
 
-Add to `.opencode/opencode.json`. OpenCode will automatically install and load the provider. If you have Claude Code credentials, no environment variable is needed.
+Add to `.opencode/opencode.json`. If you have Claude Code credentials (`~/.claude/.credentials.json`), no environment variable is needed:
 
 ```json
 {
   "provider": {
     "anthropic-sdk": {
-      "npm": "opencode-anthropic-sdk-provider",
+      "npm": "@xtruder/opencode-claude-max-plugin",
       "name": "Anthropic SDK",
       "models": {
-        "claude-sonnet-4-6":        { "name": "Claude Sonnet 4.6" },
-        "claude-opus-4-6":          { "name": "Claude Opus 4.6" },
-        "claude-opus-4-5-20251101": { "name": "Claude Opus 4.5" },
-        "claude-sonnet-4-5-20250929": { "name": "Claude Sonnet 4.5" },
-        "claude-haiku-4-5-20251001": { "name": "Claude Haiku 4.5" },
-        "claude-opus-4-1-20250805": { "name": "Claude Opus 4.1" },
-        "claude-opus-4-20250514":   { "name": "Claude Opus 4" },
-        "claude-sonnet-4-20250514": { "name": "Claude Sonnet 4" },
-        "claude-3-haiku-20240307":  { "name": "Claude 3 Haiku" }
+        "claude-sonnet-4-6":        { "name": "Claude Sonnet 4.6", "reasoning": true, "tool_call": true },
+        "claude-opus-4-6":          { "name": "Claude Opus 4.6", "reasoning": true, "tool_call": true },
+        "claude-haiku-4-5-20251001": { "name": "Claude Haiku 4.5", "tool_call": true }
       }
     }
   }
 }
 ```
 
-## API
+### With Vercel AI SDK
 
-### `createAnthropicSDK(options?)`
+```typescript
+import { createAnthropicSDK } from "@xtruder/opencode-claude-max-plugin";
+import { streamText, generateText } from "ai";
 
-Creates a provider instance. Also available as the default export.
+// Uses ~/.claude/.credentials.json automatically
+const provider = createAnthropicSDK();
+const model = provider.languageModel("claude-sonnet-4-6");
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `apiKey` | `string` | Anthropic API key or OAuth token. Falls back to `ANTHROPIC_API_KEY` env var, then `~/.claude/.credentials.json`. |
-| `baseURL` | `string` | Custom base URL for the Anthropic API. |
-| `headers` | `Record<string, string>` | Additional default headers. |
-| `fetch` | `typeof globalThis.fetch` | Custom fetch implementation. |
-| `name` | `string` | Provider name for logging. Defaults to `"anthropic-sdk"`. |
-| `credentialsPath` | `string` | Custom path to Claude Code credentials file. Defaults to `~/.claude/.credentials.json`. |
+const result = streamText({ model, prompt: "Hello!" });
+for await (const chunk of result.textStream) {
+  process.stdout.write(chunk);
+}
+```
 
-Returns an `AnthropicSDKProvider` with a single method:
+## Authentication
 
-- **`languageModel(modelId: string)`** — Returns a `LanguageModelV2` instance for any Claude model ID.
+Credentials are resolved in order:
 
-### Available Models
+1. **`apiKey` option** or **`ANTHROPIC_API_KEY` env var**
+2. **Claude Code credentials** — auto-read from `~/.claude/.credentials.json`
 
-The following models are available via the Anthropic API. Model availability depends on your subscription tier:
+For Claude Code credentials, log in via `claude` CLI first.
 
-| Model ID | Name | Subscription |
-|----------|------|-------------|
-| `claude-sonnet-4-6` | Claude Sonnet 4.6 | Pro/Max |
-| `claude-opus-4-6` | Claude Opus 4.6 | Pro/Max |
-| `claude-opus-4-5-20251101` | Claude Opus 4.5 | Pro/Max |
-| `claude-sonnet-4-5-20250929` | Claude Sonnet 4.5 | Pro/Max |
-| `claude-haiku-4-5-20251001` | Claude Haiku 4.5 | Free/Pro/Max |
-| `claude-opus-4-1-20250805` | Claude Opus 4.1 | Pro/Max |
-| `claude-opus-4-20250514` | Claude Opus 4 | Pro/Max |
-| `claude-sonnet-4-20250514` | Claude Sonnet 4 | Pro/Max |
-| `claude-3-haiku-20240307` | Claude 3 Haiku | Free/Pro/Max |
+## Context Window Limits
 
-> **Note:** With a free-tier Claude account, only Haiku models are accessible. Sonnet and Opus models require a Claude Pro or Max subscription.
+| Model | Max Context (subscription, no Extra usage) |
+|---|---|
+| Opus 4.6 | ~615K+ tokens (native 1M) |
+| Sonnet 4.6 | ~120K tokens (429 above, needs Extra usage) |
+| Haiku 4.5 | 200K tokens (hard limit) |
 
-### Features
+## Features
 
 - Streaming and non-streaming completions
-- Tool/function calling (streaming and non-streaming)
-- Extended thinking (reasoning) with signature passthrough
-- Multi-turn conversations
-- Image inputs (base64 and URL)
-- Prompt caching (token usage reported)
-- Temperature, topP, topK, and stop sequences
-- Auto-cleanup of AI SDK `custom` schema fields for Anthropic compatibility
-
-## Project Structure
-
-### Standard SDK Provider
-```
-src/
-├── index.ts        # Provider factory, auth resolution, and exports
-├── model.ts        # LanguageModelV2 implementation (doGenerate + doStream)
-├── prompt.ts       # AI SDK prompt → Anthropic Messages API converter
-├── stream.ts       # Anthropic stream events → AI SDK stream parts converter
-├── tools.ts        # AI SDK tool definitions → Anthropic tool format converter
-├── credentials.ts  # Claude Code credentials reader (~/.claude/.credentials.json)
-└── test.ts         # Integration tests (13 tests)
-```
-
-### Agent SDK Provider
-```
-src/
-├── agent-index.ts   # Agent SDK provider factory and exports
-├── agent-model.ts   # LanguageModelV2 implementation using Agent SDK session
-└── agent-test.ts    # Integration tests (4 tests)
-```
+- Tool/function calling with Claude Code tool name mapping
+- Extended thinking with signature passthrough
+- Prompt caching (98% cache hit rate with full tool set)
+- Subscription rate limit detection with clear error messages
+- `/usage` command for subscription utilization tracking
+- MCP tool name remapping (OpenCode → Claude Code format)
 
 ## Development
 
-### Prerequisites
-
-- [Bun](https://bun.sh/) runtime
-- Either `ANTHROPIC_API_KEY` or Claude Code credentials (`~/.claude/.credentials.json`)
-
-### Build
-
 ```bash
+bun install
 bun run build
+bun run test    # 17 integration tests
 ```
 
-### Test
-
-```bash
-bun run test
-```
-
-Runs 13 integration tests against the live Anthropic API covering text generation, streaming, tool calls, multi-turn conversation, and credential handling.
+See [RESEARCH.md](RESEARCH.md) for detailed reverse-engineering findings.
 
 ## License
 

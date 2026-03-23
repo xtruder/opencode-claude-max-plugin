@@ -2,7 +2,7 @@
 /**
  * CLI tool to display Claude subscription usage.
  * Run directly: bun run src/usage-cli.ts
- * Or via npx: npx opencode-anthropic-sdk-provider-usage
+ * Or via npx: npx @xtruder/opencode-claude-max-plugin-usage
  */
 import { fetchUsage, formatUsage } from "./usage.js"
 

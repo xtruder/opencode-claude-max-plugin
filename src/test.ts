@@ -1,5 +1,5 @@
 /**
- * Integration tests for opencode-anthropic-sdk-provider
+ * Integration tests for @xtruder/opencode-claude-max-plugin
  *
  * Run with: ANTHROPIC_API_KEY=sk-... bun run src/test.ts
  */
