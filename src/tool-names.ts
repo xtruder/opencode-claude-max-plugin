@@ -165,11 +165,14 @@ export function toOpencodeToolName(claudeName: string): string {
 }
 
 /**
- * Patterns for rewriting tool names in system prompt text.
- * Matches both lowercase and PascalCase variants used by OpenCode.
- * Only renames tools that have DIFFERENT names in Claude Code.
+ * Patterns for rewriting system prompt text to match Claude Code style.
+ * Includes tool name renames and identity/opening rewrites.
  */
 const SYSTEM_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
+  // Replace OpenCode identity with Claude Code-style opening
+  [/^You are OpenCode, the best coding agent on the planet\.\s*\n\s*You are an interactive CLI tool that helps users with software engineering tasks\./m,
+   "You are an interactive agent that helps users with software engineering tasks."],
+
   // "Task tool" / "task tool" / "the Task" → "Agent"
   [/\bTask\s+tool/g, "Agent tool"],
   [/\btask\s+tool/g, "Agent tool"],
