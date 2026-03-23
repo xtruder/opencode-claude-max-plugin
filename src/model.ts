@@ -81,6 +81,15 @@ const BILLING_SYSTEM_BLOCK = {
 }
 
 /**
+ * Claude Code identity block — always sent as system[1].
+ * Matches what Claude Code sends on every request.
+ */
+const IDENTITY_SYSTEM_BLOCK = {
+  type: "text" as const,
+  text: "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+}
+
+/**
  * Generate a device_id-like hash for the metadata user_id field.
  * Claude Code sends a deterministic device hash; we generate a stable one per process.
  */
@@ -139,19 +148,21 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       messages,
     }
 
-    // For OAuth subscription tokens, match Claude Code's request structure
+    // For OAuth subscription tokens, match Claude Code's request structure:
+    // system[0]: billing header
+    // system[1]: Claude agent identity
+    // system[2+]: actual system prompt (with tool names rewritten)
     if (this.isOAuth) {
-      // Prepend billing block to system content, rewrite tool names to match
+      const rewrite = (s: string) => rewriteToolNamesInText(s)
       if (system) {
-        const rewrite = (s: string) => rewriteToolNamesInText(s)
-        const systemBlocks = typeof system === "string"
-          ? [BILLING_SYSTEM_BLOCK, { type: "text" as const, text: rewrite(system) }]
-          : [BILLING_SYSTEM_BLOCK, ...(Array.isArray(system) 
-              ? system.map((b: any) => b.type === "text" ? { ...b, text: rewrite(b.text) } : b) 
-              : [system])]
-        params.system = systemBlocks
+        const contentBlocks = typeof system === "string"
+          ? [{ type: "text" as const, text: rewrite(system) }]
+          : (Array.isArray(system)
+              ? system.map((b: any) => b.type === "text" ? { ...b, text: rewrite(b.text) } : b)
+              : [system])
+        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK, ...contentBlocks]
       } else {
-        params.system = [BILLING_SYSTEM_BLOCK]
+        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK]
       }
 
       // Claude Code always sends metadata with user_id
