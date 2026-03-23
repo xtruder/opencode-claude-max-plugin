@@ -6,7 +6,7 @@
 import { createAnthropicSDK, readClaudeCredentials, isExpired } from "./index.js"
 import { streamText, generateText, tool } from "ai"
 import { z } from "zod"
-import { writeFileSync, mkdirSync, rmSync } from "node:fs"
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -538,6 +538,96 @@ await test("thinking signature survives conversation roundtrip", async () => {
   )
   console.log(`        Second turn: "${(text as any).text.trim().slice(0, 80)}"`)
   console.log(`        Signature roundtrip: success (no API error)`)
+})
+
+// ─── Test 17: Prompt caching works with realistic full-size prompt ────────────
+await test("prompt caching works with full-size OpenCode-like prompt", async () => {
+  // Caching requires:
+  // 1. OAuth credentials (not API key) — only OAuth routing supports caching for subscription
+  // 2. Enough tokens in the cached portion (needs full system + tools like real OpenCode)
+  // 3. OAuth-specific cache_control: { type: "ephemeral", ttl: "1h", scope: "global" }
+  if (apiKey) {
+    console.log(`        Skipped: requires OAuth credentials (test API key lacks caching tier)`)
+    return
+  }
+
+  // Use the real captured OpenCode system prompt and tools from fixtures.
+  // These are the actual definitions sent by OpenCode which trigger caching
+  // (~12K chars system + ~67K chars tools = ~20K tokens total).
+  const systemPrompt = readFileSync(
+    new URL("./fixtures/opencode-system.txt", import.meta.url),
+    "utf-8",
+  )
+  const realTools = JSON.parse(readFileSync(
+    new URL("./fixtures/opencode-tools.json", import.meta.url),
+    "utf-8",
+  )) as Array<{ name: string; description: string; input_schema: any }>
+
+  // Convert from Anthropic format to AI SDK format
+  const tools = realTools.map((t) => ({
+    type: "function" as const,
+    name: t.name,
+    description: t.description,
+    inputSchema: t.input_schema,
+  }))
+
+  const thinkingModel = provider.languageModel("claude-haiku-4-5-20251001")
+
+  async function streamUsage(result: Awaited<ReturnType<typeof thinkingModel.doStream>>) {
+    let usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }
+    for await (const chunk of result.stream) {
+      if (chunk.type === "finish") {
+        usage = {
+          inputTokens: (chunk.usage as any).inputTokens ?? 0,
+          cachedInputTokens: (chunk.usage as any).cachedInputTokens ?? 0,
+          outputTokens: (chunk.usage as any).outputTokens ?? 0,
+        }
+      }
+    }
+    return usage
+  }
+
+  const prompt1 = [
+    { role: "system" as const, content: systemPrompt },
+    { role: "user" as const, content: [{ type: "text" as const, text: "What is 2+2?" }] },
+  ]
+
+  // Request 1: cold — writes cache
+  const r1 = await streamUsage(await thinkingModel.doStream({
+    prompt: prompt1,
+    tools,
+    maxOutputTokens: 30,
+  } as any))
+  console.log(`        R1 (cold):  input=${r1.inputTokens} cached=${r1.cachedInputTokens}`)
+
+  // Request 2: same system+tools, different user message — should read from cache
+  const r2 = await streamUsage(await thinkingModel.doStream({
+    prompt: [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: [{ type: "text" as const, text: "What is 3+3?" }] },
+    ],
+    tools,
+    maxOutputTokens: 30,
+  } as any))
+  console.log(`        R2 (warm):  input=${r2.inputTokens} cached=${r2.cachedInputTokens}`)
+
+  const savedPct = r1.inputTokens > 0
+    ? Math.round((r2.cachedInputTokens / r1.inputTokens) * 100)
+    : 0
+
+  // Either R1 or R2 must show cache activity:
+  // - On first ever run: R1 writes cache (cache_creation > 0), R2 reads it
+  // - On subsequent runs: both R1 and R2 read from existing cache
+  const cacheActive = r1.cachedInputTokens > 0 || r2.cachedInputTokens > 0
+  assert(
+    cacheActive,
+    `Neither R1 nor R2 read tokens from cache. ` +
+    `This indicates caching is not active — check inference_geo routing ` +
+    `or that the system prompt + tools exceed the minimum token threshold.`,
+  )
+  const cachedTokens = Math.max(r1.cachedInputTokens, r2.cachedInputTokens)
+  const pct2 = r1.inputTokens > 0 ? Math.round(cachedTokens / (r1.inputTokens + cachedTokens) * 100) : 0
+  console.log(`        Cache savings: ${cachedTokens} tokens (${pct2}% of total input) ✓`)
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
