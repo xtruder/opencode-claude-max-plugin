@@ -7,7 +7,7 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
 - **Matches Claude Code exactly** — Same headers, billing, tool names, and request format as Claude Code CLI
 - **Prompt caching** — 98% of input tokens served from cache (system prompt + tools cached globally)
-- **All Claude models** — Opus 4.6, Sonnet 4.6, Sonnet 4.5, Haiku 4.5, and more
+- **All Claude models** — Opus 4.6, Sonnet 4.6, Haiku 4.5
 - **Extended thinking** — Full reasoning support with thinking variants (high/max)
 - **Usage tracking** — Built-in `/usage` command shows subscription utilization
 
@@ -55,36 +55,6 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
             "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
-        "claude-opus-4-5-20251101": {
-          "name": "Claude Opus 4.5",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 32000 },
-          "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 1024 }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
-        "claude-sonnet-4-5-20250929": {
-          "name": "Claude Sonnet 4.5",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 64000 },
-          "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 1024 }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
         "claude-haiku-4-5-20251001": {
           "name": "Claude Haiku 4.5",
           "attachment": false,
@@ -92,59 +62,6 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "tool_call": true,
           "temperature": true,
           "limit": { "context": 200000, "output": 8192 }
-        },
-        "claude-opus-4-1-20250805": {
-          "name": "Claude Opus 4.1",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 32000 },
-          "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 1024 }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
-        "claude-opus-4-20250514": {
-          "name": "Claude Opus 4",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 32000 },
-          "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 1024 }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
-        "claude-sonnet-4-20250514": {
-          "name": "Claude Sonnet 4",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 64000 },
-          "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 1024 }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
-        "claude-3-haiku-20240307": {
-          "name": "Claude 3 Haiku",
-          "attachment": false,
-          "reasoning": false,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 4096 }
         }
       }
     }

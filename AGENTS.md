@@ -30,13 +30,12 @@ There is no test runner with filtering. To run a single test, temporarily commen
 
 ### Release
 ```bash
-npm version patch   # bumps version in package.json
-git add package.json
-git commit -m "chore: bump version to X.Y.Z"
-git push origin main
-git tag vX.Y.Z && git push origin vX.Y.Z
+npm version patch                # bumps version, commits, and creates git tag automatically
+git push origin main             # push the version commit
+git push origin vX.Y.Z           # push the tag (use the version printed by npm version)
 # GitHub Actions (.github/workflows/release.yml) handles npm publish automatically
 ```
+
 
 ---
 
