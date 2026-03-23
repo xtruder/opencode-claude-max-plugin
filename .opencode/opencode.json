@@ -12,14 +12,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -30,14 +33,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "adaptive" }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "adaptive" }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -48,14 +54,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -66,14 +75,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -91,14 +103,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -109,14 +124,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
@@ -127,14 +145,17 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 16000 }
+            "thinking": { "type": "enabled", "budgetTokens": 10000 }
           },
           "variants": {
+            "normal": {
+              "thinking": { "type": "enabled", "budgetTokens": 1024 }
+            },
             "high": {
-              "thinking": { "type": "enabled", "budgetTokens": 16000 }
+              "thinking": { "type": "enabled", "budgetTokens": 10000 }
             },
             "max": {
-              "thinking": { "type": "enabled", "budgetTokens": 31999 }
+              "thinking": { "type": "enabled", "budgetTokens": 32000 }
             }
           }
         },
