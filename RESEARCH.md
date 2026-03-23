@@ -1,0 +1,430 @@
+# Claude Code Reverse Engineering Research
+
+This document summarizes the findings from reverse-engineering Claude Code's request format, authentication, and internal structure to build a compatible OpenCode provider.
+
+## Credentials
+
+### Location
+
+Claude Code stores OAuth credentials at:
+
+```
+~/.claude/.credentials.json
+```
+
+### Format
+
+```json
+{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-oat01-...",
+    "refreshToken": "sk-ant-ort01-...",
+    "expiresAt": 1784986385804,
+    "scopes": ["user:inference"],
+    "subscriptionType": "pro"
+  }
+}
+```
+
+- `accessToken` — OAuth token used for API requests (prefix `sk-ant-oat01-`)
+- `refreshToken` — for token renewal (prefix `sk-ant-ort01-`)
+- `expiresAt` — Unix timestamp in milliseconds
+- `scopes` — typically `["user:inference"]` for Pro, may include `["user:inference", "user:profile"]` for full access
+- `subscriptionType` — `null` (free), `"pro"`, or `"max"`
+
+### Token Refresh
+
+The OAuth client ID is `9d1c250a-e61b-44d9-88ed-5944d1962f5e`. Tokens can be refreshed via:
+
+```
+POST https://console.anthropic.com/v1/oauth/token
+Content-Type: application/json
+
+{
+  "grant_type": "refresh_token",
+  "refresh_token": "sk-ant-ort01-...",
+  "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+}
+```
+
+Note: refresh tokens may be rotated — using an old one invalidates the access token.
+
+### Storage Backend
+
+On Linux, Claude Code uses a plaintext storage backend that reads/writes `~/.claude/.credentials.json` directly. On macOS, it may use the system keychain. We confirmed via `strace` that `claude auth status` reads from `~/.claude/.credentials.json`.
+
+---
+
+## Authentication
+
+### How OAuth Tokens Are Sent
+
+Claude Code sends OAuth tokens via the `Authorization: Bearer` header (NOT `x-api-key`):
+
+```
+Authorization: Bearer sk-ant-oat01-...
+```
+
+This requires the `oauth-2025-04-20` beta flag in the `anthropic-beta` header.
+
+### Billing System Block (Critical)
+
+Anthropic gates subscription model access for OAuth tokens behind a **billing header injected as the first system prompt block**. Without this, OAuth tokens get HTTP 400 on non-Haiku models.
+
+```json
+{
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;"
+    },
+    ...
+  ]
+}
+```
+
+This was discovered by intercepting Claude Code's request via an HTTP proxy, then binary-searching which body fields were required. The billing block was the critical factor — without it, all Sonnet/Opus models return 400 with a vague `"Error"` message.
+
+---
+
+## Headers
+
+### Full Header Set (OAuth Mode)
+
+These are the exact headers Claude Code sends, in order of discovery importance:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `authorization` | `Bearer sk-ant-oat01-...` | OAuth authentication |
+| `anthropic-beta` | See below | Feature flags (order matters) |
+| `anthropic-version` | `2023-06-01` | API version |
+| `user-agent` | `claude-cli/2.1.81 (external, sdk-cli)` | Client identification |
+| `x-app` | `cli` | Application type |
+| `anthropic-dangerous-direct-browser-access` | `true` | Bypass browser restriction |
+| `x-stainless-package-version` | `0.74.0` | SDK version (Claude Code bundles 0.74.0) |
+| `content-type` | `application/json` | Standard |
+
+### Beta Flags
+
+Claude Code sends these beta flags (order matches what we intercepted):
+
+```
+claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24
+```
+
+| Flag | Purpose |
+|------|---------|
+| `claude-code-20250219` | Claude Code feature gate |
+| `oauth-2025-04-20` | Enables OAuth Bearer token authentication |
+| `interleaved-thinking-2025-05-14` | Extended thinking / reasoning |
+| `context-management-2025-06-27` | Context window management |
+| `prompt-caching-scope-2026-01-05` | Prompt caching with scope/TTL |
+| `effort-2025-11-24` | Output effort control (`output_config.effort`) |
+
+The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model access — the billing system block is also required.
+
+### Headers That Don't Need to Match
+
+| Header | Claude Code | Ours | Impact |
+|--------|-------------|------|--------|
+| `x-stainless-runtime-version` | Node version of Claude Code | Our Node version | None — determined by runtime |
+| `accept-language` | `*` | Not sent | Negligible |
+
+---
+
+## Request Body
+
+### Required Fields for OAuth (Sonnet/Opus Access)
+
+| Field | Value | Required? |
+|-------|-------|-----------|
+| `system[0]` | Billing block | **Yes** — without it, 400 on non-Haiku |
+| `system[1]` | `"You are a Claude agent, built on Anthropic's Claude Agent SDK."` | Sent by Claude Code always |
+| `metadata` | `{ "user_id": "{\"device_id\":\"<sha256>\"}" }` | Sent by Claude Code always |
+| `output_config` | `{ "effort": "medium" }` | Sonnet/Opus only (Haiku rejects it) |
+| `temperature` | `1` | Default for Sonnet/Opus |
+| `stream` | `true` | Claude Code always streams |
+
+### Thinking (Extended Reasoning)
+
+Claude Code sends thinking config via the request body:
+
+```json
+{
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 10000
+  }
+}
+```
+
+Thinking responses include `signature_delta` stream events that must be captured and passed back in conversation history. Without a valid signature, the API rejects thinking blocks with "Invalid signature in thinking block".
+
+### Rate Limiting
+
+Subscription rate limits return HTTP 429 with:
+- `x-should-retry: true` (the SDK obeys this and retries indefinitely)
+- `retry-after: 6457` (can be hours!)
+- Body: `"This request would exceed your account's rate limit"`
+
+We detect subscription limits by checking if `retry-after > 120` seconds, then set `x-should-retry: false` in our fetch wrapper to prevent the SDK from hanging.
+
+---
+
+## Tool Names
+
+### Built-in Tool Mapping
+
+Claude Code uses PascalCase tool names. OpenCode uses snake_case. Our provider maps bidirectionally:
+
+| OpenCode | Claude Code | Notes |
+|----------|-------------|-------|
+| `task` | `Agent` | Different name entirely |
+| `question` | `AskUserQuestion` | Different name entirely |
+| `plan_enter` | `EnterPlanMode` | Different name entirely |
+| `plan_exit` | `ExitPlanMode` | Different name entirely |
+| `bash` | `Bash` | Case change |
+| `read` | `Read` | Case change |
+| `write` | `Write` | Case change |
+| `edit` | `Edit` | Case change |
+| `glob` | `Glob` | Case change |
+| `grep` | `Grep` | Case change |
+| `webfetch` | `WebFetch` | Case change |
+| `todowrite` | `TodoWrite` | Case change |
+| `skill` | `Skill` | Case change |
+
+### MCP Tool Mapping
+
+MCP tools use different prefix formats:
+
+| OpenCode | Claude Code |
+|----------|-------------|
+| `context7_query-docs` | `mcp__context7__query-docs` |
+| `playwright_browser_close` | `mcp__playwright__browser_close` |
+
+Pattern: `<server>_<tool>` → `mcp__<server>__<tool>`
+
+MCP server names are auto-detected from OpenCode config files:
+- `.opencode/opencode.json` (project)
+- `~/.config/opencode/opencode.json` (global)
+- `~/.config/opencode/opencode.jsonc` (global, JSONC)
+
+### Tool Name References in System Prompt
+
+OpenCode's system prompt references tool names that we also rewrite:
+- `"use the Task tool"` → `"use the Agent tool"`
+- `"the question to ask"` → `"the AskUserQuestion to ask"`
+
+Tools already matching Claude Code names (Bash, Read, Write, Edit, Glob, Grep, TodoWrite, Skill, WebFetch) are left unchanged.
+
+---
+
+## System Prompt Structure
+
+### Claude Code
+
+```
+system[0]: billing header                     (FIXED, always present)
+system[1]: "You are a Claude agent..."        (FIXED, always present)
+system[2]: base instructions + CLAUDE.md      (CACHED, customizable via --system-prompt)
+system[3]: memory + environment               (DYNAMIC, per-session)
+```
+
+- `system[0]` and `system[1]` are immutable — always injected by Claude Code
+- `system[2]` can be **completely replaced** via `--system-prompt` CLI arg, or **appended to** via `--append-system-prompt` and CLAUDE.md files
+- `system[3]` contains the auto-memory system, environment info, model identity, and `<fast_mode_info>`
+
+### Our Provider (via OpenCode)
+
+```
+system[0]: billing header                     (injected by provider)
+system[1]: "You are a Claude agent..."        (injected by provider)
+system[2]: OpenCode prompt (rewritten)        (from OpenCode, tool names + identity rewritten)
+```
+
+Rewrites applied to system[2]:
+- Opening identity replaced: `"You are OpenCode, the best coding agent..."` → `"You are an interactive agent that helps users with software engineering tasks."`
+- Tool names rewritten to match Claude Code names
+
+### `<system-reminder>` Tags
+
+`<system-reminder>` tags are **not part of the system prompt**. They are injected into **user messages and tool results** during the conversation. Claude Code's system prompt instructs the model about them:
+
+> *"Tool results and user messages may include `<system-reminder>` or other tags. Tags contain information from the system. They bear no direct relation to the specific tool results or user messages in which they appear."*
+
+Both Claude Code and OpenCode use `<system-reminder>` for:
+- Mode changes (plan → build)
+- Permission reminders
+- Context injections
+
+---
+
+## Claude Code Binary Analysis
+
+### File Location
+
+Claude Code is installed as an npm global package:
+
+```
+/home/linuxbrew/.linuxbrew/lib/node_modules/@anthropic-ai/claude-code/cli.js
+```
+
+The CLI binary is a single minified JavaScript file (~10MB+).
+
+### Extraction Techniques
+
+#### Finding String Constants
+
+```bash
+# Find beta flags
+grep -oP 'AD="[^"]*"' cli.js
+# Result: AD="oauth-2025-04-20"
+
+# Find all API endpoints
+grep -o 'https://[a-zA-Z0-9._/-]*' cli.js | sort -u | grep anthropic
+
+# Find default beta header value used in SDK transport
+grep -oP 'Ve4="[^"]*"' cli.js
+# Result: Ve4="files-api-2025-04-14,oauth-2025-04-20"
+```
+
+#### Finding Auth Logic
+
+```bash
+# How OAuth tokens are sent
+grep -oP '.{0,80}(authToken|accessToken).{0,80}' cli.js | grep "oauth\|credential\|bearer"
+# Key finding: Authorization: `Bearer ${q.accessToken}`,"anthropic-beta":AD
+
+# Where credentials are read
+grep -oP '.{0,80}credentials.{0,80}' cli.js | grep "read\|file\|path"
+```
+
+#### Finding SDK Version
+
+```bash
+grep -oP 'Anthropic/JS [0-9.]+' cli.js
+# Result: Anthropic/JS 0.74.0
+```
+
+#### Finding Tool Names
+
+```bash
+# Built-in tool names (from intercepted request body)
+grep -oP '"name":"[A-Z][a-zA-Z]*"' intercepted-body.json
+```
+
+#### Finding Betas for Messages API
+
+```bash
+# Find the betas array passed to messages.create
+grep -oP '\[.{0,500}interleaved-thinking.{0,200}\]' cli.js
+```
+
+#### Finding Request Body Structure
+
+```bash
+# Find metadata construction
+grep -oP 'function L66\(\).{0,300}' cli.js
+# Found: metadata with user_id containing device_id
+
+# Find output_config
+grep -oP 'output_config.{0,100}' cli.js
+# Found: { effort: "medium" }
+```
+
+---
+
+## Request Interception Methodology
+
+### Intercepting Claude Code
+
+We used `ANTHROPIC_BASE_URL` to redirect Claude Code through a local HTTP proxy:
+
+```typescript
+import * as http from "http";
+
+const server = http.createServer(async (req, res) => {
+  let body = "";
+  req.on("data", (d) => body += d);
+  req.on("end", async () => {
+    // Log headers and body
+    console.log("Headers:", JSON.stringify(req.headers));
+    console.log("Body:", body);
+
+    // Forward to real API
+    const resp = await fetch("https://api.anthropic.com" + req.url, {
+      method: req.method,
+      headers: Object.fromEntries(
+        Object.entries(req.headers).filter(([k]) => k !== "host" && k !== "connection")
+      ),
+      body,
+    });
+    const respText = await resp.text();
+    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()));
+    res.end(respText);
+  });
+});
+server.listen(19827);
+```
+
+Then run:
+```bash
+ANTHROPIC_BASE_URL=http://localhost:19827 echo "Say OK" | claude --model opus -p
+```
+
+### Intercepting OpenCode
+
+Same proxy approach:
+```bash
+ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-opus-4-6" "Say OK"
+```
+
+### Intercepting SDK Requests
+
+For intercepting what the Anthropic SDK sends, we used the `fetch` option:
+
+```typescript
+const client = new Anthropic({
+  apiKey: null,
+  authToken: creds.accessToken,
+  fetch: async (url, init) => {
+    const h = new Headers(init?.headers);
+    console.log("URL:", url);
+    h.forEach((v, k) => console.log(k + ":", v));
+    console.log("Body:", init?.body);
+    return globalThis.fetch(url, init);
+  },
+});
+```
+
+### Binary Search for Required Fields
+
+To find which body fields were required for OAuth subscription access, we:
+
+1. Captured a working Claude Code request (full 96KB body)
+2. Replayed it exactly via raw `fetch` — confirmed it worked (200)
+3. Progressively stripped fields and tested each combination
+4. Narrowed down to: billing system block was the critical factor
+
+```bash
+# Test order:
+# original body → 200 ✓
+# remove system → 400 ✗
+# keep system, simple messages → 400 ✗  
+# keep system[0] only → 200 ✓   ← billing block is the key
+# keep system[1] only → 400 ✗
+```
+
+---
+
+## Key Discoveries Timeline
+
+1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus
+2. **Bearer auth with `oauth-2025-04-20` beta** → Still 400 on Sonnet/Opus
+3. **Added `claude-code-20250219` beta** → Still 400
+4. **Intercepted Claude Code request** → Saw 96KB body with billing header
+5. **Binary searched body fields** → Found billing system block was required
+6. **Matched all headers** → user-agent, x-app, x-stainless-package-version
+7. **Discovered `output_config: { effort: "medium" }`** → Required for Sonnet/Opus, rejected by Haiku
+8. **Found `signature_delta` stream events** → Required for thinking roundtrip
+9. **Rate limit handling** → `retry-after: 6457` with `x-should-retry: true` causes SDK to hang
