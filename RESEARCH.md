@@ -501,6 +501,75 @@ However, we use the dedicated `/api/oauth/usage` endpoint instead since it works
 
 ---
 
+## Prompt Caching
+
+### How It Works
+
+Anthropic caches prompt content when `cache_control` is set on system blocks, tool definitions, or messages. Cache hits return `cache_read_input_tokens > 0` in the usage response.
+
+### Claude Code's Cache Strategy
+
+Claude Code sets `cache_control` on:
+
+1. **`system[2]`** (main instructions) — cached globally with 1-hour TTL:
+   ```json
+   { "type": "ephemeral", "ttl": "1h", "scope": "global" }
+   ```
+   The `scope: "global"` means the cache is shared across all sessions for the same user, not just within a session.
+
+2. **Last user message content** — cached per-session with 1-hour TTL:
+   ```json
+   { "type": "ephemeral", "ttl": "1h" }
+   ```
+
+3. **Tool result blocks** in multi-turn conversations — caches the accumulated context including thinking blocks.
+
+### Our Implementation
+
+- **OAuth mode**: Uses `{ type: "ephemeral", ttl: "1h", scope: "global" }` on `system[2]` and `{ type: "ephemeral", ttl: "1h" }` on message history
+- **API key mode**: Uses plain `{ type: "ephemeral" }` without `ttl`/`scope` (matches Claude Code's non-OAuth behavior)
+- **Tool results**: Cache the last `tool_result` block in conversation history (not just the penultimate message) — per Anthropic docs, this keeps thinking blocks in cache across tool-use turns
+
+### What Triggers Caching
+
+Caching requires a **large enough prompt** to reach the infrastructure threshold. With the full OpenCode request (22 tools with detailed schemas + 12K char system prompt ≈ 80KB body, ~20K tokens), caching works reliably:
+
+- **R1 (cold)**: `cache_creation_input_tokens: 20499, input_tokens: 330`
+- **R2 (warm)**: `cache_read_input_tokens: 20499, input_tokens: 330`
+- **Savings**: 98% of input tokens served from cache
+
+With small isolated test prompts (<2K tokens), caching is not triggered.
+
+### `inference_geo` Field
+
+The `inference_geo` field in responses indicates routing:
+- `""` (empty string) — Claude Code's normal routing
+- `"global"` — standard API key routing
+- `"not_available"` — overflow infrastructure (e.g. at 100% session utilization)
+
+Both `"global"` and `"not_available"` support caching. `"not_available"` only disables caching when the session is at 100% utilization and traffic is routed to overflow infrastructure that doesn't support it.
+
+### Cache Invalidation
+
+The system prompt is stable within a session — the dynamic fields are:
+- `Today's date` — uses `toDateString()` (no time), changes at midnight
+- `Working directory` — stable per project
+- `Model name/ID` — stable per model selection
+
+Tool names in the system prompt are rewritten to match Claude Code names (e.g. `Task` → `Agent`) so the cached system prompt remains consistent with the tools list.
+
+### `cachedInputTokens` Bug (Fixed)
+
+The stream `finish` event was missing `cachedInputTokens` because `stream.ts` only captured `input_tokens` from `message_start` but not `cache_read_input_tokens`. Fixed to propagate all cache usage fields to the `finish` event.
+
+### Fixtures
+
+Real OpenCode request data captured and stored for testing:
+- `src/fixtures/opencode-system.txt` — actual system prompt (12.8K chars)
+- `src/fixtures/opencode-tools.json` — actual 22 tool definitions (66K chars)
+
+---
+
 ## Key Discoveries Timeline
 
 1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus
@@ -513,3 +582,5 @@ However, we use the dedicated `/api/oauth/usage` endpoint instead since it works
 8. **Found `signature_delta` stream events** → Required for thinking roundtrip
 9. **Rate limit handling** → `retry-after: 6457` with `x-should-retry: true` causes SDK to hang
 10. **Usage API discovered** → `GET /api/oauth/usage` returns subscription usage without consuming tokens — same endpoint Claude Code's `/usage` command uses
+11. **Prompt caching confirmed** → 98% of input tokens (20499/20829) served from cache with full-size OpenCode request; `cachedInputTokens` was missing from stream `finish` event (fixed in `stream.ts`)
+12. **`inference_geo: "not_available"`** → Does NOT mean caching is unavailable; it's overflow routing that only disables caching when session is at 100% utilization
