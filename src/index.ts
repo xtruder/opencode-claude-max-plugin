@@ -179,12 +179,17 @@ export function createAnthropicSDK(
     if (resp.status === 429) {
       const unifiedStatus = resp.headers.get("anthropic-ratelimit-unified-status") ?? ""
       const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
-      const isSubscriptionLimit = unifiedStatus === "over_limit"
+
+      // Check for long context billing error — don't retry, it won't resolve
+      const bodyText = await resp.clone().text()
+      const isLongContextLimit = bodyText.includes("Extra usage is required for long context")
+
+      const isSubscriptionLimit = isLongContextLimit
+        || unifiedStatus === "over_limit"
         || retryAfter > 120
 
       if (isSubscriptionLimit) {
-        // Read body to avoid dangling stream, then disable SDK retries
-        const body = await resp.text()
+        const body = bodyText
         const headers = new Headers(resp.headers)
         headers.set("x-should-retry", "false")
         return new Response(body, {

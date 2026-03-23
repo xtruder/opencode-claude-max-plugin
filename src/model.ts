@@ -30,6 +30,15 @@ function handleApiError(error: unknown): never {
     const h = (error as any).headers
     const getHeader = (name: string): string | null =>
       h?.get?.(name) ?? h?.[name] ?? null
+    const errorMsg = (error as any).error?.error?.message ?? (error as any).message ?? ""
+
+    // Check for long context billing requirement (needs "extra usage" enabled)
+    if (errorMsg.includes("Extra usage is required for long context")) {
+      throw new Error(
+        `Long context request requires "Extra usage" to be enabled in your Claude subscription. ` +
+        `Go to claude.ai/settings and enable Extra usage, or reduce context size.`
+      )
+    }
 
     // Use anthropic-ratelimit-unified-status (same method as Claude Code) to
     // precisely identify subscription exhaustion. "over_limit" = subscription
