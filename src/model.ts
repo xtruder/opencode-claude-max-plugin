@@ -216,23 +216,52 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     if (toolChoice) params.tool_choice = toolChoice
 
     // Cache conversation history — applies to both OAuth and API key modes.
-    // Use ttl only for OAuth (subscription), plain ephemeral for API keys.
+    //
+    // Strategy per Anthropic docs:
+    // - Cache the last tool_result block when present — this caches the full
+    //   accumulated context (system + messages + thinking + tool results)
+    //   and keeps thinking blocks in cache on subsequent tool-only turns.
+    // - Otherwise cache the last content block of the penultimate message.
+    //
+    // Per docs: cache stays valid when new user content is ONLY tool results.
+    // Cache invalidates (and thinking blocks are stripped) when regular user
+    // text is added — this is expected and unavoidable.
     if (params.messages && params.messages.length > 1) {
       const msgs = params.messages as any[]
-      const cacheIdx = msgs.length >= 2 ? msgs.length - 2 : 0
-      const msg = msgs[cacheIdx]
       const msgCache = this.isOAuth
         ? { type: "ephemeral", ttl: "1h" }
         : { type: "ephemeral" }
-      if (msg && Array.isArray(msg.content) && msg.content.length > 0) {
-        const lastContent = msg.content[msg.content.length - 1]
-        if (lastContent && !lastContent.cache_control) {
-          lastContent.cache_control = msgCache
+
+      // Find the last user message that contains tool_result blocks
+      let cachedSomething = false
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const msg = msgs[i]
+        if (msg.role !== "user" || !Array.isArray(msg.content)) continue
+        // Find last tool_result in this message
+        for (let j = msg.content.length - 1; j >= 0; j--) {
+          const block = msg.content[j]
+          if (block.type === "tool_result" && !block.cache_control) {
+            block.cache_control = msgCache
+            cachedSomething = true
+            break
+          }
         }
-      } else if (msg && typeof msg.content === "string") {
-        msgs[cacheIdx] = {
-          ...msg,
-          content: [{ type: "text", text: msg.content, cache_control: msgCache }],
+        if (cachedSomething) break
+      }
+
+      // Fallback: cache the last content block of the penultimate message
+      if (!cachedSomething) {
+        const msg = msgs[msgs.length - 2]
+        if (msg && Array.isArray(msg.content) && msg.content.length > 0) {
+          const lastContent = msg.content[msg.content.length - 1]
+          if (lastContent && !lastContent.cache_control) {
+            lastContent.cache_control = msgCache
+          }
+        } else if (msg && typeof msg.content === "string") {
+          msgs[msgs.length - 2] = {
+            ...msg,
+            content: [{ type: "text", text: msg.content, cache_control: msgCache }],
+          }
         }
       }
     }
