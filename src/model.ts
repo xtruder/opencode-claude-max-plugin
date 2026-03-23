@@ -10,7 +10,7 @@ import type Anthropic from "@anthropic-ai/sdk"
 import { convertPrompt } from "./prompt.js"
 import { convertTools, convertToolChoice } from "./tools.js"
 import { convertStream } from "./stream.js"
-import { toOpencodeToolName } from "./tool-names.js"
+import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.js"
 import { randomBytes, createHash } from "node:crypto"
 import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 
@@ -141,11 +141,14 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     // For OAuth subscription tokens, match Claude Code's request structure
     if (this.isOAuth) {
-      // Prepend billing block to system content
+      // Prepend billing block to system content, rewrite tool names to match
       if (system) {
+        const rewrite = (s: string) => rewriteToolNamesInText(s)
         const systemBlocks = typeof system === "string"
-          ? [BILLING_SYSTEM_BLOCK, { type: "text" as const, text: system }]
-          : [BILLING_SYSTEM_BLOCK, ...(Array.isArray(system) ? system : [system])]
+          ? [BILLING_SYSTEM_BLOCK, { type: "text" as const, text: rewrite(system) }]
+          : [BILLING_SYSTEM_BLOCK, ...(Array.isArray(system) 
+              ? system.map((b: any) => b.type === "text" ? { ...b, text: rewrite(b.text) } : b) 
+              : [system])]
         params.system = systemBlocks
       } else {
         params.system = [BILLING_SYSTEM_BLOCK]

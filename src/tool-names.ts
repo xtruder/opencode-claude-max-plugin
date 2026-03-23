@@ -163,3 +163,45 @@ export function toOpencodeToolName(claudeName: string): string {
 
   return claudeName
 }
+
+/**
+ * Patterns for rewriting tool names in system prompt text.
+ * Matches both lowercase and PascalCase variants used by OpenCode.
+ * Only renames tools that have DIFFERENT names in Claude Code.
+ */
+const SYSTEM_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
+  // "Task tool" / "task tool" / "the Task" → "Agent"
+  [/\bTask\s+tool/g, "Agent tool"],
+  [/\btask\s+tool/g, "Agent tool"],
+  [/\bthe\s+Task\b/g, "the Agent"],
+  // Standalone "Task" when used as tool name (after "use the" or before "tool")
+  [/\buse\s+(?:the\s+)?Task\b/g, "use the Agent"],
+
+  // "question" tool → "AskUserQuestion"
+  [/\bquestion\s+tool/g, "AskUserQuestion tool"],
+  [/\bthe\s+question\b(?=\s+to\s+ask)/g, "the AskUserQuestion"],
+
+  // Lowercase tool names → PascalCase (only where used as tool references)
+  [/\buse\s+(?:the\s+)?bash\b/gi, "use the Bash"],
+  [/\buse\s+(?:the\s+)?read\b/gi, "use the Read"],
+  [/\buse\s+(?:the\s+)?write\b/gi, "use the Write"],
+  [/\buse\s+(?:the\s+)?edit\b/gi, "use the Edit"],
+  [/\buse\s+(?:the\s+)?glob\b/gi, "use the Glob"],
+  [/\buse\s+(?:the\s+)?grep\b/gi, "use the Grep"],
+  [/\buse\s+(?:the\s+)?skill\b/gi, "use the Skill"],
+  [/\buse\s+(?:the\s+)?webfetch\b/gi, "use the WebFetch"],
+  [/\buse\s+(?:the\s+)?websearch\b/gi, "use the WebSearch"],
+  [/\buse\s+(?:the\s+)?todowrite\b/gi, "use the TodoWrite"],
+]
+
+/**
+ * Rewrite OpenCode tool names in system prompt text to match Claude Code names.
+ * This ensures the model sees tool names consistent with the tools list.
+ */
+export function rewriteToolNamesInText(text: string): string {
+  let result = text
+  for (const [pattern, replacement] of SYSTEM_PROMPT_REPLACEMENTS) {
+    result = result.replace(pattern, replacement)
+  }
+  return result
+}
