@@ -17,6 +17,7 @@ const OAUTH_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
+  "context-1m-2025-08-07",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
   "effort-2025-11-24",
@@ -27,6 +28,7 @@ const OAUTH_BETAS = [
  */
 const API_KEY_BETAS = [
   "interleaved-thinking-2025-05-14",
+  "context-1m-2025-08-07",
   "fine-grained-tool-streaming-2025-05-14",
 ]
 

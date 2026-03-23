@@ -148,7 +148,8 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     // Build base params
     const params: Record<string, any> = {
       model: this.modelId,
-      max_tokens: options.maxOutputTokens ?? 4096,
+      // Match Claude Code's default of 64000 max output tokens
+      max_tokens: options.maxOutputTokens ?? 64000,
       messages,
     }
 
