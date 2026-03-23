@@ -149,17 +149,29 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     }
 
     // For OAuth subscription tokens, match Claude Code's request structure:
-    // system[0]: billing header
-    // system[1]: Claude agent identity
-    // system[2+]: actual system prompt (with tool names rewritten)
+    // system[0]: billing header (no cache — tiny, fixed)
+    // system[1]: Claude agent identity (no cache — tiny, fixed)
+    // system[2]: main system prompt — CACHED with global scope + 1h TTL
+    //            matches Claude Code's exact cache_control on system[2]
     if (this.isOAuth) {
       const rewrite = (s: string) => rewriteToolNamesInText(s)
+      // Cache control for the main system prompt — matches Claude Code exactly
+      const SYSTEM_CACHE: Record<string, any> = {
+        type: "ephemeral",
+        ttl: "1h",
+        scope: "global",
+      }
       if (system) {
         const contentBlocks = typeof system === "string"
-          ? [{ type: "text" as const, text: rewrite(system) }]
+          ? [{ type: "text" as const, text: rewrite(system), cache_control: SYSTEM_CACHE }]
           : (Array.isArray(system)
-              ? system.map((b: any) => b.type === "text" ? { ...b, text: rewrite(b.text) } : b)
-              : [system])
+              ? system.map((b: any, i: number) =>
+                  b.type === "text"
+                    // Only cache the last system block (the main prompt)
+                    ? { ...b, text: rewrite(b.text), ...(i === system.length - 1 ? { cache_control: SYSTEM_CACHE } : {}) }
+                    : b
+                )
+              : [{ ...(system as object), cache_control: SYSTEM_CACHE }])
         params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK, ...contentBlocks]
       } else {
         params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK]
@@ -183,6 +195,27 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     if (tools && tools.length > 0) params.tools = tools
     if (toolChoice) params.tool_choice = toolChoice
+
+    // Cache conversation history for OAuth — Claude Code caches the penultimate
+    // user message (everything except the latest turn) with ttl: "1h"
+    if (this.isOAuth && params.messages && params.messages.length > 1) {
+      const msgs = params.messages as any[]
+      // Cache the last message before the final user turn
+      // This makes Anthropic cache the accumulated conversation context
+      const cacheIdx = msgs.length >= 2 ? msgs.length - 2 : 0
+      const msg = msgs[cacheIdx]
+      if (msg && Array.isArray(msg.content) && msg.content.length > 0) {
+        const lastContent = msg.content[msg.content.length - 1]
+        if (lastContent && !lastContent.cache_control) {
+          lastContent.cache_control = { type: "ephemeral", ttl: "1h" }
+        }
+      } else if (msg && typeof msg.content === "string") {
+        msgs[cacheIdx] = {
+          ...msg,
+          content: [{ type: "text", text: msg.content, cache_control: { type: "ephemeral", ttl: "1h" } }],
+        }
+      }
+    }
     if (options.temperature != null) params.temperature = options.temperature
     if (options.topP != null) params.top_p = options.topP
     if (options.topK != null) params.top_k = options.topK
