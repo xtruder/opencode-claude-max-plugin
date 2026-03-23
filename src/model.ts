@@ -148,26 +148,29 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       messages,
     }
 
-    // For OAuth subscription tokens, match Claude Code's request structure:
-    // system[0]: billing header (no cache — tiny, fixed)
-    // system[1]: Claude agent identity (no cache — tiny, fixed)
-    // system[2]: main system prompt — CACHED with global scope + 1h TTL
-    //            matches Claude Code's exact cache_control on system[2]
+    // Build system blocks and apply cache_control matching Claude Code's pattern:
+    //
+    // OAuth (subscription) mode:
+    //   system[0]: billing header         (no cache)
+    //   system[1]: identity block         (no cache)
+    //   system[2]: main prompt            cache_control: { type: "ephemeral", ttl: "1h", scope: "global" }
+    //
+    // API key mode (matches Claude Code with --api-key):
+    //   system[0]: identity block         cache_control: { type: "ephemeral" }
+    //   system[1]: main prompt            cache_control: { type: "ephemeral" }
+    //
+    // Claude Code observed sending plain { type: "ephemeral" } without ttl/scope for API key auth.
+    // The ttl/scope fields require the prompt-caching-scope-2026-01-05 beta and OAuth routing.
+
     if (this.isOAuth) {
       const rewrite = (s: string) => rewriteToolNamesInText(s)
-      // Cache control for the main system prompt — matches Claude Code exactly
-      const SYSTEM_CACHE: Record<string, any> = {
-        type: "ephemeral",
-        ttl: "1h",
-        scope: "global",
-      }
+      const SYSTEM_CACHE: Record<string, any> = { type: "ephemeral", ttl: "1h", scope: "global" }
       if (system) {
         const contentBlocks = typeof system === "string"
           ? [{ type: "text" as const, text: rewrite(system), cache_control: SYSTEM_CACHE }]
           : (Array.isArray(system)
               ? system.map((b: any, i: number) =>
                   b.type === "text"
-                    // Only cache the last system block (the main prompt)
                     ? { ...b, text: rewrite(b.text), ...(i === system.length - 1 ? { cache_control: SYSTEM_CACHE } : {}) }
                     : b
                 )
@@ -190,29 +193,46 @@ export class AnthropicSDKModel implements LanguageModelV2 {
         params.output_config = { effort: "medium" }
       }
     } else if (system) {
-      params.system = system
+      // API key mode — add plain ephemeral cache_control matching Claude Code
+      const CACHE: Record<string, any> = { type: "ephemeral" }
+      if (typeof system === "string") {
+        params.system = [
+          { ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE },
+          { type: "text", text: system, cache_control: CACHE },
+        ]
+      } else if (Array.isArray(system)) {
+        const blocks = system.map((b: any, i: number) =>
+          b.type === "text" && i === system.length - 1
+            ? { ...b, cache_control: CACHE }
+            : b
+        )
+        params.system = [{ ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE }, ...blocks]
+      } else {
+        params.system = [{ ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE }, { ...(system as object), cache_control: CACHE }]
+      }
     }
 
     if (tools && tools.length > 0) params.tools = tools
     if (toolChoice) params.tool_choice = toolChoice
 
-    // Cache conversation history for OAuth — Claude Code caches the penultimate
-    // user message (everything except the latest turn) with ttl: "1h"
-    if (this.isOAuth && params.messages && params.messages.length > 1) {
+    // Cache conversation history — applies to both OAuth and API key modes.
+    // Use ttl only for OAuth (subscription), plain ephemeral for API keys.
+    if (params.messages && params.messages.length > 1) {
       const msgs = params.messages as any[]
-      // Cache the last message before the final user turn
-      // This makes Anthropic cache the accumulated conversation context
       const cacheIdx = msgs.length >= 2 ? msgs.length - 2 : 0
       const msg = msgs[cacheIdx]
+      const msgCache = this.isOAuth
+        ? { type: "ephemeral", ttl: "1h" }
+        : { type: "ephemeral" }
       if (msg && Array.isArray(msg.content) && msg.content.length > 0) {
         const lastContent = msg.content[msg.content.length - 1]
         if (lastContent && !lastContent.cache_control) {
-          lastContent.cache_control = { type: "ephemeral", ttl: "1h" }
+          lastContent.cache_control = msgCache
         }
       } else if (msg && typeof msg.content === "string") {
         msgs[cacheIdx] = {
           ...msg,
-          content: [{ type: "text", text: msg.content, cache_control: { type: "ephemeral", ttl: "1h" } }],
+          content: [{ type: "text", text: msg.content, cache_control: msgCache }],
         }
       }
     }
