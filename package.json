@@ -15,11 +15,14 @@
       "types": "./build/agent-index.d.ts"
     }
   },
+  "bin": {
+    "claude-usage": "build/usage-cli.js"
+  },
   "files": [
     "build"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/agent-index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
+    "build": "bun build ./src/index.ts ./src/agent-index.ts ./src/usage-cli.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
     "test": "bun run src/test.ts"
   },
   "dependencies": {
