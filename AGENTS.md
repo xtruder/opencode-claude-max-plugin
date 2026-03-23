@@ -38,10 +38,81 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 # GitHub Actions (.github/workflows/release.yml) handles npm publish automatically
 ```
 
-### Test the installed package in OpenCode cache
+---
+
+## Testing Locally with OpenCode
+
+### Setup (first time)
+
+The plugin must be installed in the OpenCode cache. Since it's a `file:` symlink, rebuilding is enough — no reinstall needed:
+
 ```bash
-# After build, the file: symlink in ~/.cache/opencode picks up changes automatically
+# Install the local package into OpenCode's cache
+cat > ~/.cache/opencode/package.json << 'EOF'
+{
+  "dependencies": {
+    "opencode-anthropic-auth": "0.0.13",
+    "@xtruder/opencode-claude-max-plugin": "file:/path/to/this/repo"
+  }
+}
+EOF
+bun install
+```
+Replace `/path/to/this/repo` with the actual path (e.g. `/home/user/Code/opencode-anthropic-sdk-provider`).
+
+### Test a single prompt via CLI
+```bash
+# Uses ~/.claude/.credentials.json automatically
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
+opencode run -m "anthropic-sdk/claude-sonnet-4-6" "What is 2+2?"
+opencode run -m "anthropic-sdk/claude-opus-4-6" "What model are you?"
+```
+
+### Test with tool use (file reading)
+```bash
+opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Read package.json and tell me the package name"
+```
+
+### Check usage
+```bash
+opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" /usage
+# or directly:
+node ~/.cache/opencode/node_modules/@xtruder/opencode-claude-max-plugin/build/usage-cli.js
+```
+
+### Debug with logs
+```bash
+opencode run --print-logs --log-level DEBUG -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK" 2>&1 | grep -E "install|error|ERROR"
+```
+
+### Intercept API requests (compare with Claude Code)
+Start a logging proxy, then run both tools through it:
+```bash
+# Terminal 1: start proxy
+bun -e "
+import * as http from 'http';
+http.createServer(async (req, res) => {
+  let body = ''; req.on('data', d => body += d);
+  req.on('end', async () => {
+    const parsed = JSON.parse(body);
+    if (parsed.tools) console.log('tools:', parsed.tools.length, '| system blocks:', parsed.system?.length);
+    const resp = await fetch('https://api.anthropic.com' + req.url, {
+      method: req.method,
+      headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => k !== 'host')),
+      body,
+    });
+    const text = await resp.text();
+    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()));
+    res.end(text);
+  });
+}).listen(19827, () => console.log('Proxy on 19827'));
+"
+
+# Terminal 2: run OpenCode through proxy
+ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
+
+# Terminal 2: compare with Claude Code (ANTHROPIC_BASE_URL is ignored by claude -p)
+echo "Say OK" | claude -p --output-format json | python3 -c "import json,sys; d=json.load(sys.stdin); print('cache_read:', d['usage']['cache_read_input_tokens'])"
 ```
 
 ---
@@ -66,63 +137,6 @@ src/
     ├── opencode-system.txt
     └── opencode-tools.json
 ```
-
----
-
-## Code Style
-
-### Language and Runtime
-- **TypeScript** with `strict: true`, targeting ESNext, module resolution `bundler`
-- **Bun** runtime for building and running tests
-- All imports use `.js` extension (ESM, bundler resolves to `.ts`)
-
-### Imports
-```typescript
-// 1. Third-party packages
-import Anthropic from "@anthropic-ai/sdk"
-import type { LanguageModelV2 } from "@ai-sdk/provider"
-
-// 2. Node built-ins — always use "node:" prefix
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
-
-// 3. Local modules — always .js extension
-import { convertPrompt } from "./prompt.js"
-import type { ConvertedPrompt } from "./prompt.js"
-
-// Use `import type` for type-only imports
-```
-
-### Naming Conventions
-- **Variables/functions**: `camelCase`
-- **Classes**: `PascalCase` (e.g. `AnthropicSDKModel`)
-- **Constants**: `SCREAMING_SNAKE_CASE` for module-level constants (e.g. `OAUTH_BETAS`, `BILLING_SYSTEM_BLOCK`)
-- **Types/interfaces**: `PascalCase` (e.g. `AnthropicSDKProviderOptions`)
-- **Files**: `kebab-case` (e.g. `tool-names.ts`)
-
-### Types
-- Prefer explicit types on exported functions and class methods
-- Use `type` aliases and `interface` for object shapes
-- Avoid `any` except when bridging between AI SDK and Anthropic SDK types (use `as any` with a comment explaining why)
-- Derive types from SDK return values where possible: `type DoGenerateResult = Awaited<ReturnType<LanguageModelV2["doGenerate"]>>`
-
-### Formatting
-- 2-space indentation
-- Double quotes for strings
-- No trailing semicolons (omit them)
-- Arrow functions for callbacks and short helpers
-- Descriptive section comments with box-drawing characters: `// ─── Section name ───`
-
-### Error Handling
-- Catch and rethrow with context using `handleApiError()` in `model.ts`
-- Distinguish subscription rate limits (`anthropic-ratelimit-unified-status: over_limit`) from transient 429s
-- Never match error messages with broad string includes — use specific header values
-- Detect "Extra usage required for long context" by exact substring match in `model.ts`
-
-### Comments
-- JSDoc on all exported functions and classes
-- Inline comments for non-obvious logic, especially anything related to Claude Code compatibility
-- When matching Claude Code behaviour, cite the source: `// Claude Code: found in cli.js as al1=1024`
 
 ---
 
@@ -157,3 +171,9 @@ OAuth tokens use `Authorization: Bearer` with the `oauth-2025-04-20` beta. The b
 - Thinking tests (14-16) use `claude-sonnet-4-6` and require OAuth credentials
 - Fixture files in `src/fixtures/` contain real captured OpenCode request data — don't modify them arbitrarily as the caching test depends on their size (~20K tokens)
 - The `assert()` helper throws on failure; the `test()` wrapper catches and records
+
+---
+
+## Research
+
+@RESEARCH.md
