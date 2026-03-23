@@ -601,6 +601,44 @@ Real OpenCode request data captured and stored for testing:
 
 ---
 
+## Context Window Limits (OAuth Subscription)
+
+### Tested limits per model (Max subscription, Extra usage disabled)
+
+| Model | Without `context-1m` | With `context-1m` | Notes |
+|-------|---------------------|-------------------|-------|
+| **Opus 4.6** | **~615K tokens** (1M chars) ✓ | Not needed | Native 1M context without any beta |
+| **Sonnet 4.6** | **~120K tokens** (195K chars) ✓ | ✗ `"Extra usage is required"` | Fails at ~200K chars. `context-1m` doesn't help — requires Extra usage |
+| **Haiku 4.5** | **~200K tokens** (300K chars) ✓ | ✗ `"long context beta not available for this subscription"` | Hard 200K limit. `context-1m` not supported for Haiku |
+
+### Key findings
+
+1. **Opus has native 1M context** — no `context-1m` beta needed, works out of the box up to ~615K+ tokens
+2. **Sonnet is limited to ~120K input tokens** on subscription (without Extra usage). Above that, returns 429 `"Extra usage is required for long context requests"`. The `context-1m` beta triggers the same billing check even for smaller requests
+3. **Haiku has a hard 200K token limit** — `"prompt is too long: 200054 tokens > 200000 maximum"`. The `context-1m` beta returns `"The long context beta is not yet available for this subscription"`
+4. **Claude Code never hits these limits** because its context management (`context-management-2025-06-27`) truncates conversations before sending
+
+### Error messages
+
+| Error | Meaning | Resolution |
+|-------|---------|------------|
+| `"Extra usage is required for long context requests"` | Sonnet context > ~120K tokens | Enable Extra usage at `claude.ai/settings` or reduce context |
+| `"prompt is too long: N tokens > 200000 maximum"` | Haiku context > 200K tokens | Switch to Opus/Sonnet or reduce context |
+| `"The long context beta is not yet available for this subscription"` | `context-1m` beta not supported for this model/tier | Remove `context-1m` beta, use Opus for large context |
+
+### Actual token counts (from testing)
+
+The char-to-token ratio is approximately **1.63 chars per token** (not the typical 4:1) for repetitive English text:
+
+| Input chars | Actual tokens | Ratio |
+|-------------|---------------|-------|
+| 200K | 123,087 | 1.63 |
+| 400K | 246,165 | 1.63 |
+| 800K | 492,317 | 1.63 |
+| 1.6M | 615,396 | 2.60 |
+
+---
+
 ## Key Discoveries Timeline
 
 1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus
@@ -617,3 +655,4 @@ Real OpenCode request data captured and stored for testing:
 12. **`inference_geo: "not_available"`** → Does NOT mean caching is unavailable; it's overflow routing that only disables caching when session is at 100% utilization
 13. **Long context billing** → `"Extra usage is required for long context requests"` (429) when context exceeds subscription limit without Extra usage enabled. Claude Code avoids this via built-in context management (`context-management-2025-06-27` beta) that truncates context before sending — it never actually hits this limit. The `context-1m-2025-08-07` beta does NOT bypass billing — Extra usage must be enabled at `claude.ai/settings`
 14. **`context-1m-2025-08-07` is conditional** → Claude Code only sends it when model ID includes `[1m]` suffix (checked via `/\[1m\]/i.test(modelId)`). Always sending it triggers the "Extra usage required" billing check even on small requests
+15. **Context window limits per model** → See table below
