@@ -417,6 +417,90 @@ To find which body fields were required for OAuth subscription access, we:
 
 ---
 
+## Usage API
+
+### Endpoint
+
+Claude Code's `/usage` command fetches subscription usage from a **dedicated endpoint** that requires no token generation:
+
+```
+GET https://api.anthropic.com/api/oauth/usage
+Authorization: Bearer sk-ant-oat01-...
+anthropic-beta: claude-code-20250219,oauth-2025-04-20
+content-type: application/json
+user-agent: claude-cli/2.1.81 (external, sdk-cli)
+x-app: cli
+```
+
+### Response Format
+
+```json
+{
+  "five_hour": {
+    "utilization": 88.0,
+    "resets_at": "2026-03-23T10:00:00.998161+00:00"
+  },
+  "seven_day": {
+    "utilization": 13.0,
+    "resets_at": "2026-03-30T05:00:00.998185+00:00"
+  },
+  "seven_day_sonnet": {
+    "utilization": 0.0,
+    "resets_at": null
+  },
+  "seven_day_opus": null,
+  "seven_day_oauth_apps": null,
+  "seven_day_cowork": null,
+  "extra_usage": {
+    "is_enabled": false,
+    "monthly_limit": null,
+    "used_credits": null,
+    "utilization": null
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `five_hour` | Current session usage (5-hour rolling window) |
+| `seven_day` | Weekly usage across all models |
+| `seven_day_sonnet` | Weekly usage for Sonnet models only |
+| `seven_day_opus` | Weekly usage for Opus models only |
+| `extra_usage` | Pay-as-you-go overage (if enabled) |
+| `utilization` | Percentage used (0–100) |
+| `resets_at` | ISO 8601 timestamp when the window resets |
+
+### Discovery Method
+
+Found by searching the minified CLI source for usage-related URLs:
+
+```bash
+grep -oP '(api\.anthropic\.com|console\.anthropic\.com|claude\.ai)[^\s"]*' cli.js | grep -i "usage\|rate\|limit\|billing\|quota\|plan\|subscription"
+# Result: claude.ai/admin-settings/usage
+#         claude.ai/settings/usage
+```
+
+Those are web UI links. Then found the actual API call pattern:
+
+```bash
+grep -oP '.{0,60}/api/oauth/usage.{0,100}' cli.js
+# Result: `${iA().BASE_API_URL}/api/oauth/usage`
+```
+
+Also found the `ratelimit-unified-*` response headers that Claude Code reads from regular API responses:
+
+```bash
+grep -oP 'anthropic-ratelimit-unified-[a-z0-9-]+' cli.js | sort -u
+# anthropic-ratelimit-unified-5h-utilization
+# anthropic-ratelimit-unified-7d-utilization  
+# anthropic-ratelimit-unified-{window}-reset
+# anthropic-ratelimit-unified-status
+```
+
+However, we use the dedicated `/api/oauth/usage` endpoint instead since it works without making an inference call.
+
+---
+
 ## Key Discoveries Timeline
 
 1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus
@@ -428,3 +512,4 @@ To find which body fields were required for OAuth subscription access, we:
 7. **Discovered `output_config: { effort: "medium" }`** → Required for Sonnet/Opus, rejected by Haiku
 8. **Found `signature_delta` stream events** → Required for thinking roundtrip
 9. **Rate limit handling** → `retry-after: 6457` with `x-should-retry: true` causes SDK to hang
+10. **Usage API discovered** → `GET /api/oauth/usage` returns subscription usage without consuming tokens — same endpoint Claude Code's `/usage` command uses
