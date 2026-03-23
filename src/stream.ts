@@ -45,6 +45,8 @@ export function convertStream(
   const blockStates = new Map<number, ContentBlockState>()
   let inputTokens: number | undefined
   let outputTokens: number | undefined
+  let cachedInputTokens: number | undefined
+  let cacheCreationTokens: number | undefined
 
   return new ReadableStream<LanguageModelV2StreamPart>({
     async start(controller) {
@@ -52,7 +54,10 @@ export function convertStream(
         for await (const event of anthropicStream) {
           const parts = processEvent(event, blockStates, modelId)
           if (event.type === "message_start" && event.message.usage) {
-            inputTokens = event.message.usage.input_tokens
+            const u = event.message.usage as any
+            inputTokens = u.input_tokens
+            cachedInputTokens = u.cache_read_input_tokens ?? 0
+            cacheCreationTokens = u.cache_creation_input_tokens ?? 0
           }
           if (event.type === "message_delta") {
             const delta = event as any
@@ -65,6 +70,7 @@ export function convertStream(
                 inputTokens: inputTokens ?? 0,
                 outputTokens: outputTokens ?? 0,
                 totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+                cachedInputTokens: cachedInputTokens,
               },
             })
           }
