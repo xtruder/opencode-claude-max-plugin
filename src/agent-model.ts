@@ -141,13 +141,21 @@ function convertAgentStream(
           if (msg.type === "result") {
             // Emit finish with usage from the result message
             const result = msg as any
+            const cacheRead = result.usage?.cache_read_input_tokens ?? 0
+            const cacheCreate = result.usage?.cache_creation_input_tokens ?? 0
             controller.enqueue({
               type: "finish",
               finishReason: mapFinishReason(result.stop_reason),
               usage: {
                 inputTokens: result.usage?.input_tokens ?? 0,
                 outputTokens: result.usage?.output_tokens ?? 0,
-                totalTokens: (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0),
+                totalTokens: (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0) + cacheRead + cacheCreate,
+                cachedInputTokens: cacheRead,
+              },
+              providerMetadata: {
+                anthropic: {
+                  cacheCreationInputTokens: cacheCreate,
+                },
               },
             })
             firstAssistantTurnDone = true

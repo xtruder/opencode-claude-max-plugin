@@ -11,6 +11,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -25,6 +26,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 1000000, "output": 64000 },
           "options": {
             "thinking": { "type": "adaptive" }
           },
@@ -39,6 +41,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -53,6 +56,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -66,7 +70,8 @@
           "attachment": false,
           "reasoning": false,
           "tool_call": true,
-          "temperature": true
+          "temperature": true,
+          "limit": { "context": 200000, "output": 8192 }
         },
         "claude-opus-4-1-20250805": {
           "name": "Claude Opus 4.1",
@@ -74,6 +79,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -88,6 +94,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -102,6 +109,7 @@
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -115,7 +123,8 @@
           "attachment": false,
           "reasoning": false,
           "tool_call": true,
-          "temperature": true
+          "temperature": true,
+          "limit": { "context": 200000, "output": 4096 }
         }
       }
     }

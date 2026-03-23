@@ -8,6 +8,8 @@ import type {
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { convertPrompt } from "./prompt.js"
+import { cachedUsage, type CachedUsage } from "./index.js"
+import { fetchUsage, formatUsage } from "./usage.js"
 import { convertTools, convertToolChoice } from "./tools.js"
 import { convertStream } from "./stream.js"
 import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.js"
@@ -114,6 +116,100 @@ function buildMetadata(): { user_id: string } {
   return {
     user_id: JSON.stringify({ device_id: DEVICE_ID }),
   }
+}
+
+/**
+ * Check if the prompt is a /usage slash command.
+ * Returns true when the last user message is just "/usage".
+ */
+function isUsageCommand(prompt: LanguageModelV2CallOptions["prompt"]): boolean {
+  for (let i = prompt.length - 1; i >= 0; i--) {
+    const msg = prompt[i]
+    if (msg.role !== "user") continue
+    const text = msg.content
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join("")
+      .trim()
+    return /^\/usage(\s|$)/i.test(text)
+  }
+  return false
+}
+
+/**
+ * Fetch usage and throw it as an error to abort the LLM call.
+ * The error message contains the formatted usage report.
+ */
+function formatReset(epoch: number): string {
+  if (!epoch) return ""
+  const reset = new Date(epoch * 1000)
+  const now = new Date()
+  const diffMs = reset.getTime() - now.getTime()
+  if (diffMs <= 0) return "Reset now"
+  const timeStr = reset.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })
+  const dateStr = reset.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  return diffMs < 86400000 ? `Resets ${timeStr}` : `Resets ${dateStr}, ${timeStr}`
+}
+
+function formatCachedUsage(usage: CachedUsage): string {
+  const bar = (pct: number, width = 50) =>
+    "█".repeat(Math.round((pct / 100) * width)) + " ".repeat(width - Math.round((pct / 100) * width))
+
+  const lines: string[] = []
+  const h5 = Math.round((usage.fiveHourUtil ?? 0) * 100)
+  lines.push("  Current session")
+  lines.push(`  ${bar(h5)}  ${h5}% used`)
+  if (usage.fiveHourReset) lines.push(`  ${formatReset(usage.fiveHourReset)}`)
+  lines.push("")
+
+  const d7 = Math.round((usage.sevenDayUtil ?? 0) * 100)
+  lines.push("  Current week")
+  lines.push(`  ${bar(d7)}  ${d7}% used`)
+  if (usage.sevenDayReset) lines.push(`  ${formatReset(usage.sevenDayReset)}`)
+  lines.push("")
+
+  if (usage.overageStatus === "rejected") {
+    lines.push("  Extra usage: disabled")
+  } else if (usage.overageStatus) {
+    lines.push(`  Extra usage: ${usage.overageStatus}`)
+  }
+
+  return lines.join("\n")
+}
+
+async function handleUsageCommand(): Promise<never> {
+  // Primary: use cached ratelimit headers from last API response (free, instant)
+  if (cachedUsage.timestamp) {
+    throw new Error(
+      "Claude Subscription Usage\n" +
+      "─".repeat(52) + "\n" +
+      formatCachedUsage(cachedUsage),
+    )
+  }
+
+  // Fallback: fetch from /api/oauth/usage endpoint (first /usage before any LLM call)
+  try {
+    const data = await fetchUsage()
+    if (data) {
+      throw new Error(
+        "Claude Subscription Usage\n" +
+        "─".repeat(52) + "\n" +
+        formatUsage(data),
+      )
+    }
+  } catch (e: any) {
+    // If it's our own formatted usage error, rethrow
+    if (e.message?.startsWith("Claude Subscription Usage")) throw e
+    // Otherwise fall through to generic message
+  }
+
+  throw new Error(
+    "No usage data available. Send a message first, then try /usage again.",
+  )
 }
 
 export class AnthropicSDKModel implements LanguageModelV2 {
@@ -315,6 +411,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
   }
 
   async doGenerate(options: LanguageModelV2CallOptions): Promise<DoGenerateResult> {
+    if (isUsageCommand(options.prompt)) await handleUsageCommand()
     const { params, warnings } = this.buildParams(options)
 
     // Non-streaming has a 10min SDK timeout enforced when max_tokens > threshold.
@@ -366,14 +463,22 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       }
     }
 
+    const cacheReadTokens = (response.usage as any).cache_read_input_tokens ?? 0
+    const cacheCreateTokens = (response.usage as any).cache_creation_input_tokens ?? 0
+
     return {
       content,
       finishReason: mapFinishReason(response.stop_reason),
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
-        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
-        cachedInputTokens: (response.usage as any).cache_read_input_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens + cacheReadTokens + cacheCreateTokens,
+        cachedInputTokens: cacheReadTokens,
+      },
+      providerMetadata: {
+        anthropic: {
+          cacheCreationInputTokens: cacheCreateTokens,
+        },
       },
       response: {
         id: response.id,
@@ -385,6 +490,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
   }
 
   async doStream(options: LanguageModelV2CallOptions): Promise<DoStreamResult> {
+    if (isUsageCommand(options.prompt)) await handleUsageCommand()
     const { params, warnings } = this.buildParams(options)
 
     let anthropicStream

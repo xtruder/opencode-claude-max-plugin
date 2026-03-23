@@ -69,8 +69,13 @@ export function convertStream(
               usage: {
                 inputTokens: inputTokens ?? 0,
                 outputTokens: outputTokens ?? 0,
-                totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+                totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0) + (cachedInputTokens ?? 0) + (cacheCreationTokens ?? 0),
                 cachedInputTokens: cachedInputTokens,
+              },
+              providerMetadata: {
+                anthropic: {
+                  cacheCreationInputTokens: cacheCreationTokens ?? 0,
+                },
               },
             })
           }

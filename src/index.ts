@@ -82,6 +82,22 @@ export interface AnthropicSDKProvider {
   languageModel(modelId: string): LanguageModelV2
 }
 
+/**
+ * Cached ratelimit usage from the most recent API response headers.
+ * Updated on every successful inference call — same data Claude Code
+ * reads for its /usage display. No extra API call needed.
+ */
+export interface CachedUsage {
+  fiveHourUtil?: number
+  sevenDayUtil?: number
+  fiveHourReset?: number
+  sevenDayReset?: number
+  overageStatus?: string
+  timestamp?: number
+}
+
+export const cachedUsage: CachedUsage = {}
+
 function resolveAuth(options: AnthropicSDKProviderOptions): {
   apiKey?: string | null
   authToken?: string | null
@@ -176,6 +192,18 @@ export function createAnthropicSDK(
     }
 
     const resp = await baseFetch(url, init)
+
+    // Cache ratelimit usage headers from every response
+    const h5 = resp.headers.get("anthropic-ratelimit-unified-5h-utilization")
+    if (h5 != null) {
+      cachedUsage.fiveHourUtil = parseFloat(h5)
+      cachedUsage.sevenDayUtil = parseFloat(resp.headers.get("anthropic-ratelimit-unified-7d-utilization") ?? "0")
+      cachedUsage.fiveHourReset = parseInt(resp.headers.get("anthropic-ratelimit-unified-5h-reset") ?? "0")
+      cachedUsage.sevenDayReset = parseInt(resp.headers.get("anthropic-ratelimit-unified-7d-reset") ?? "0")
+      cachedUsage.overageStatus = resp.headers.get("anthropic-ratelimit-unified-overage-status") ?? undefined
+      cachedUsage.timestamp = Date.now()
+    }
+
     if (resp.status === 429) {
       const unifiedStatus = resp.headers.get("anthropic-ratelimit-unified-status") ?? ""
       const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")

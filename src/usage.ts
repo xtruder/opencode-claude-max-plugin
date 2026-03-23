@@ -47,7 +47,13 @@ export async function fetchUsage(credentialsPath?: string): Promise<UsageData | 
     },
   })
 
-  if (!resp.ok) return null
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "")
+    const msg = body.includes("message")
+      ? JSON.parse(body)?.error?.message ?? body
+      : `HTTP ${resp.status}`
+    throw new Error(`Usage API error: ${msg}`)
+  }
   return resp.json() as Promise<UsageData>
 }
 

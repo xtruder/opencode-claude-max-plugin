@@ -6,7 +6,13 @@
  */
 import { fetchUsage, formatUsage } from "./usage.js"
 
-const data = await fetchUsage()
+let data
+try {
+  data = await fetchUsage()
+} catch (e: any) {
+  console.error(e.message ?? "Could not fetch usage.")
+  process.exit(1)
+}
 if (!data) {
   console.error("Could not fetch usage. Make sure you're logged into Claude Code (~/.claude/.credentials.json).")
   process.exit(1)
