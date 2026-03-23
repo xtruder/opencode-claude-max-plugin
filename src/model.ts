@@ -31,10 +31,11 @@ function handleApiError(error: unknown): never {
     const retryAfter = (error.headers as any)?.get?.("retry-after")
       ?? (error.headers as any)?.["retry-after"]
 
-    // Check if this is a subscription/account limit vs transient rate limit
-    const isSubscriptionLimit = msg.includes("account")
-      || msg.includes("limit")
-      || msg.includes("exceeded")
+    // Check if this is a subscription/account limit vs transient rate limit.
+    // Subscription limits mention the account specifically; transient ones don't.
+    const isSubscriptionLimit = msg.toLowerCase().includes("account")
+      || msg.toLowerCase().includes("subscription")
+      || msg.toLowerCase().includes("your limit")
       || (retryAfter && parseInt(retryAfter) > 60)
 
     if (isSubscriptionLimit) {

@@ -157,10 +157,12 @@ export function createAnthropicSDK(
     if (resp.status === 429) {
       const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
       if (retryAfter > SUBSCRIPTION_LIMIT_THRESHOLD) {
-        // Subscription limit — don't let the SDK retry for hours
+        // Subscription limit — read the full body first so the stream isn't
+        // left dangling, then return a new Response with x-should-retry: false
+        const body = await resp.text()
         const headers = new Headers(resp.headers)
         headers.set("x-should-retry", "false")
-        return new Response(resp.body, {
+        return new Response(body, {
           status: resp.status,
           statusText: resp.statusText,
           headers,
