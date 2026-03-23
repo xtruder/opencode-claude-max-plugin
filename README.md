@@ -181,11 +181,11 @@ Reasoning models support thinking levels selectable in OpenCode via `/model`:
 
 | Variant | Opus 4.6 | Other reasoning models |
 |---|---|---|
-| **Default** | `adaptive` (Claude decides) | `enabled`, 10000 tokens |
+| **Default** | `adaptive` (Claude decides) | `enabled`, 1024 tokens |
 | **high** | `enabled`, 10000 tokens | `enabled`, 10000 tokens |
 | **max** | `enabled`, 32000 tokens | `enabled`, 32000 tokens |
 
-Opus 4.6 uses `{ type: "adaptive" }` by default — Claude decides when and how much to think (deprecated fixed `budget_tokens` replaced by adaptive mode). Other models use `{ type: "enabled", budgetTokens: N }` with a fixed budget.
+Opus 4.6 uses `{ type: "adaptive" }` by default — Claude decides when and how much to think. Other models default to 1024 tokens (matching Claude Code's `al1 = 1024`).
 
 ## Context Window Limits
 

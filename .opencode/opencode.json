@@ -12,7 +12,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
@@ -40,7 +40,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
@@ -54,7 +54,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
@@ -75,7 +75,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
@@ -89,7 +89,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
@@ -103,7 +103,7 @@
           "tool_call": true,
           "temperature": true,
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
