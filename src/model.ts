@@ -155,9 +155,12 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       : convertToolChoice(options.toolChoice)
 
     // Build base params
+    // Claude Code always streams with 64000 max_tokens. For non-streaming
+    // (doGenerate), the Anthropic SDK enforces a timeout limit that rejects
+    // max_tokens > 4096 when not streaming. We use 64000 as streaming default
+    // but allow doGenerate to set a lower value if needed.
     const params: Record<string, any> = {
       model: this.modelId,
-      // Match Claude Code's default of 64000 max output tokens
       max_tokens: options.maxOutputTokens ?? 64000,
       messages,
     }
@@ -313,6 +316,12 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
   async doGenerate(options: LanguageModelV2CallOptions): Promise<DoGenerateResult> {
     const { params, warnings } = this.buildParams(options)
+
+    // Non-streaming has a 10min SDK timeout enforced when max_tokens > threshold.
+    // Cap to 4096 if not explicitly set (doGenerate is only used in tests/simple cases).
+    if (!options.maxOutputTokens && params.max_tokens > 4096) {
+      params.max_tokens = 4096
+    }
 
     let response: Anthropic.Message
     try {
