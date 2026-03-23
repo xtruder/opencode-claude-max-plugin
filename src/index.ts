@@ -13,22 +13,27 @@ const CLAUDE_CODE_VERSION = "2.1.81"
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
  */
-const OAUTH_BETAS = [
+export const OAUTH_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
-  "context-1m-2025-08-07",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
   "effort-2025-11-24",
 ]
 
 /**
+ * Beta flag that enables 1M context window. Only sent when model ID
+ * includes [1m] suffix — e.g. "claude-sonnet-4-6[1m]".
+ * Claude Code checks: /\[1m\]/i.test(modelId) before including this.
+ */
+export const CONTEXT_1M_BETA = "context-1m-2025-08-07"
+
+/**
  * Beta flags for regular API key auth (no OAuth).
  */
-const API_KEY_BETAS = [
+export const API_KEY_BETAS = [
   "interleaved-thinking-2025-05-14",
-  "context-1m-2025-08-07",
   "fine-grained-tool-streaming-2025-05-14",
 ]
 
@@ -149,8 +154,27 @@ export function createAnthropicSDK(
   // response header to detect this — "over_limit" means subscription exhausted.
   // We also check retry-after > 120s as a fallback (subscription limits reset
   // in hours, transient overloads in seconds).
+  /**
+   * Approximate body size threshold (in bytes) for switching to 1M context.
+   * Standard context is ~200K tokens ≈ ~800K chars. We trigger at ~600K chars
+   * (~150K tokens) to give headroom before hitting the standard limit.
+   */
+  const CONTEXT_1M_BODY_THRESHOLD = 600_000
+
   const baseFetch = customFetch ?? globalThis.fetch
   const wrappedFetch = async (url: string | URL | Request, init?: RequestInit) => {
+    // Auto-enable 1M context when the request body is large enough.
+    // This avoids needing [1m] model suffixes — just sends the beta
+    // when the context exceeds the standard window threshold.
+    if (init?.body && typeof init.body === "string" && init.body.length > CONTEXT_1M_BODY_THRESHOLD) {
+      const headers = new Headers(init.headers)
+      const existingBetas = headers.get("anthropic-beta") ?? ""
+      if (!existingBetas.includes(CONTEXT_1M_BETA)) {
+        headers.set("anthropic-beta", existingBetas + "," + CONTEXT_1M_BETA)
+        init = { ...init, headers }
+      }
+    }
+
     const resp = await baseFetch(url, init)
     if (resp.status === 429) {
       const unifiedStatus = resp.headers.get("anthropic-ratelimit-unified-status") ?? ""
