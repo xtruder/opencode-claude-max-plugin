@@ -27,19 +27,22 @@ type DoStreamResult = Awaited<ReturnType<LanguageModelV2["doStream"]>>
  */
 function handleApiError(error: unknown): never {
   if (error instanceof RateLimitError || (error instanceof APIError && error.status === 429)) {
-    const msg = (error as any).error?.error?.message ?? error.message ?? ""
-    const retryAfter = (error.headers as any)?.get?.("retry-after")
-      ?? (error.headers as any)?.["retry-after"]
+    const h = (error as any).headers
+    const getHeader = (name: string): string | null =>
+      h?.get?.(name) ?? h?.[name] ?? null
 
-    // Check if this is a subscription/account limit vs transient rate limit.
-    // Subscription limits mention the account specifically; transient ones don't.
-    const isSubscriptionLimit = msg.toLowerCase().includes("account")
-      || msg.toLowerCase().includes("subscription")
-      || msg.toLowerCase().includes("your limit")
-      || (retryAfter && parseInt(retryAfter) > 60)
+    // Use anthropic-ratelimit-unified-status (same method as Claude Code) to
+    // precisely identify subscription exhaustion. "over_limit" = subscription
+    // limit, anything else = transient API overload.
+    // Fallback: retry-after > 120s means hours-long reset = subscription limit.
+    const unifiedStatus = getHeader("anthropic-ratelimit-unified-status") ?? ""
+    const retryAfter = parseInt(getHeader("retry-after") ?? "0")
+    const isSubscriptionLimit = unifiedStatus === "over_limit" || retryAfter > 120
 
     if (isSubscriptionLimit) {
-      const resetInfo = retryAfter ? ` Resets in ~${Math.ceil(parseInt(retryAfter) / 60)} minutes.` : ""
+      const resetInfo = retryAfter > 0
+        ? ` Resets in ~${Math.ceil(retryAfter / 60)} minutes.`
+        : ""
       throw new Error(
         `Claude subscription rate limit reached.${resetInfo} ` +
         `Use /rate-limit-options in Claude Code to check your options, ` +
@@ -50,7 +53,7 @@ function handleApiError(error: unknown): never {
     // Transient rate limit — the SDK already retried, still failing
     throw new Error(
       `Anthropic API rate limit exceeded after retries. ` +
-      (retryAfter ? `Retry after ${retryAfter}s.` : `Please try again shortly.`)
+      (retryAfter > 0 ? `Retry after ${retryAfter}s.` : `Please try again shortly.`)
     )
   }
   throw error

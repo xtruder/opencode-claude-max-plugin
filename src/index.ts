@@ -142,23 +142,22 @@ export function createAnthropicSDK(
     defaultHeaders["x-stainless-package-version"] = "0.74.0"
   }
 
-  /**
-   * Max retry-after (in seconds) before we consider it a subscription limit
-   * and stop retrying. Anything above this is likely "you've hit your daily
-   * limit" rather than a transient overload.
-   */
-  const SUBSCRIPTION_LIMIT_THRESHOLD = 120
-
-  // Wrap fetch to detect subscription rate limits (429 with long retry-after)
-  // and tell the SDK not to retry by setting x-should-retry: false.
+  // Wrap fetch to detect subscription rate limits and stop SDK from retrying
+  // indefinitely. Claude Code uses the anthropic-ratelimit-unified-status
+  // response header to detect this — "over_limit" means subscription exhausted.
+  // We also check retry-after > 120s as a fallback (subscription limits reset
+  // in hours, transient overloads in seconds).
   const baseFetch = customFetch ?? globalThis.fetch
   const wrappedFetch = async (url: string | URL | Request, init?: RequestInit) => {
     const resp = await baseFetch(url, init)
     if (resp.status === 429) {
+      const unifiedStatus = resp.headers.get("anthropic-ratelimit-unified-status") ?? ""
       const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
-      if (retryAfter > SUBSCRIPTION_LIMIT_THRESHOLD) {
-        // Subscription limit — read the full body first so the stream isn't
-        // left dangling, then return a new Response with x-should-retry: false
+      const isSubscriptionLimit = unifiedStatus === "over_limit"
+        || retryAfter > 120
+
+      if (isSubscriptionLimit) {
+        // Read body to avoid dangling stream, then disable SDK retries
         const body = await resp.text()
         const headers = new Headers(resp.headers)
         headers.set("x-should-retry", "false")

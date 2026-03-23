@@ -162,12 +162,43 @@ Thinking responses include `signature_delta` stream events that must be captured
 
 ### Rate Limiting
 
-Subscription rate limits return HTTP 429 with:
-- `x-should-retry: true` (the SDK obeys this and retries indefinitely)
-- `retry-after: 6457` (can be hours!)
-- Body: `"This request would exceed your account's rate limit"`
+#### Subscription limit (hours-long reset)
 
-We detect subscription limits by checking if `retry-after > 120` seconds, then set `x-should-retry: false` in our fetch wrapper to prevent the SDK from hanging.
+```
+HTTP 429
+x-should-retry: true            ← SDK retries indefinitely without intervention
+retry-after: 6457               ← reset time in seconds (can be hours)
+anthropic-ratelimit-unified-status: over_limit  ← definitive signal
+Body: "This request would exceed your account's rate limit"
+```
+
+#### Transient overload (seconds-long reset)
+
+```
+HTTP 429
+x-should-retry: true
+retry-after: 30                 ← short reset, SDK retries are fine
+anthropic-ratelimit-unified-status: allowed_warning  ← not over limit
+```
+
+#### Our handling
+
+We wrap `fetch` to intercept 429 responses and detect subscription limits using the `anthropic-ratelimit-unified-status` response header — **the same method Claude Code uses** (found in the `ID4` function in `cli.js`). When `status === "over_limit"` or `retry-after > 120s`, we override `x-should-retry: false` to prevent the SDK from hanging for hours.
+
+```typescript
+const unifiedStatus = resp.headers.get("anthropic-ratelimit-unified-status") ?? ""
+const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
+const isSubscriptionLimit = unifiedStatus === "over_limit" || retryAfter > 120
+
+if (isSubscriptionLimit) {
+  const body = await resp.text()  // consume stream to avoid dangling
+  const headers = new Headers(resp.headers)
+  headers.set("x-should-retry", "false")
+  return new Response(body, { status: 429, headers })
+}
+```
+
+**Important**: Do NOT match on the error message body text. The words "limit", "exceeded", "account" appear in many contexts and cause false positives. The `anthropic-ratelimit-unified-status: over_limit` header is the precise, authoritative signal.
 
 ---
 
