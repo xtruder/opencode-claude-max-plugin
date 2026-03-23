@@ -31,13 +31,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-opus-4-6": {
@@ -46,13 +46,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 1000000, "output": 64000 },
           "options": {
             "thinking": { "type": "adaptive" }
           },
           "variants": {
-            "normal": { "thinking": { "type": "adaptive" } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-opus-4-5-20251101": {
@@ -61,13 +61,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-sonnet-4-5-20250929": {
@@ -76,13 +76,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-haiku-4-5-20251001": {
@@ -90,7 +90,8 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "attachment": false,
           "reasoning": false,
           "tool_call": true,
-          "temperature": true
+          "temperature": true,
+          "limit": { "context": 200000, "output": 8192 }
         },
         "claude-opus-4-1-20250805": {
           "name": "Claude Opus 4.1",
@@ -98,13 +99,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-opus-4-20250514": {
@@ -113,13 +114,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 32000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-sonnet-4-20250514": {
@@ -128,13 +129,13 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "reasoning": true,
           "tool_call": true,
           "temperature": true,
+          "limit": { "context": 200000, "output": 64000 },
           "options": {
-            "thinking": { "type": "enabled", "budgetTokens": 10000 }
+            "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
           "variants": {
-            "normal": { "thinking": { "type": "enabled", "budgetTokens": 1024 } },
-            "high":   { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":    { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
+            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-3-haiku-20240307": {
@@ -142,7 +143,8 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           "attachment": false,
           "reasoning": false,
           "tool_call": true,
-          "temperature": true
+          "temperature": true,
+          "limit": { "context": 200000, "output": 4096 }
         }
       }
     }
@@ -160,42 +162,6 @@ Credentials are resolved in order:
 2. **Claude Code credentials** — auto-read from `~/.claude/.credentials.json`
 
 For Claude Code credentials, log in via `claude` CLI first (`claude auth login`).
-
-## Models
-
-| Model ID | Name | Thinking | Notes |
-|---|---|---|---|
-| `claude-opus-4-6` | Claude Opus 4.6 | ✓ | Native 1M context window |
-| `claude-sonnet-4-6` | Claude Sonnet 4.6 | ✓ | ~120K token limit on subscription |
-| `claude-opus-4-5-20251101` | Claude Opus 4.5 | ✓ | |
-| `claude-sonnet-4-5-20250929` | Claude Sonnet 4.5 | ✓ | |
-| `claude-haiku-4-5-20251001` | Claude Haiku 4.5 | — | 200K token hard limit |
-| `claude-opus-4-1-20250805` | Claude Opus 4.1 | ✓ | |
-| `claude-opus-4-20250514` | Claude Opus 4 | ✓ | |
-| `claude-sonnet-4-20250514` | Claude Sonnet 4 | ✓ | |
-| `claude-3-haiku-20240307` | Claude 3 Haiku | — | |
-
-### Thinking variants
-
-Reasoning models support thinking levels selectable in OpenCode via `/model`:
-
-| Variant | Opus 4.6 | Other reasoning models |
-|---|---|---|
-| **Default** | `adaptive` (Claude decides) | `enabled`, 1024 tokens |
-| **high** | `enabled`, 10000 tokens | `enabled`, 10000 tokens |
-| **max** | `enabled`, 32000 tokens | `enabled`, 32000 tokens |
-
-Opus 4.6 uses `{ type: "adaptive" }` by default — Claude decides when and how much to think. Other models default to 1024 tokens (matching Claude Code's `al1 = 1024`).
-
-## Context Window Limits
-
-Tested on Claude Max subscription (Extra usage disabled):
-
-| Model | Included context | Above limit |
-|---|---|---|
-| Opus 4.6 | ~615K+ tokens (native 1M) | Not tested |
-| Sonnet 4.6 | ~120K tokens | 429 — enable Extra usage at claude.ai |
-| Haiku 4.5 | 200K tokens (hard limit) | `prompt is too long` error |
 
 ## Features
 
