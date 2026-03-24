@@ -24,6 +24,8 @@
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
+    "dev": "bun run dev:config && bun build ./src/index.ts --outdir ./build --target node --format esm --packages external --watch",
+    "dev:config": "bun scripts/dev-config.ts",
     "test": "bun test --concurrency 1 src/*.test.ts",
     "lint": "oxlint src",
     "lint:fix": "oxlint --fix src",

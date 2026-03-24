@@ -3,3 +3,4 @@ build/
 opencode-ref/
 .env
 bun.lock
+.opencode/opencode.json

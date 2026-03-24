@@ -312,10 +312,13 @@ export const anthropicSDKPlugin: Plugin = async () => {
       if (!cfg.provider) {
         cfg.provider = {}
       }
+      // Plugin provides defaults; config-level settings take priority.
+      // This allows .opencode/opencode.json to override npm (e.g. file://)
+      // or individual model settings while the plugin provides the base.
       cfg.provider[PROVIDER_ID] = {
-        ...cfg.provider[PROVIDER_ID],
         npm: PACKAGE_NAME,
         models: PLUGIN_MODELS,
+        ...cfg.provider[PROVIDER_ID],
       }
     },
   }

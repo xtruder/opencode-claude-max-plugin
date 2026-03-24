@@ -10,28 +10,35 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 - **All Claude models** — Opus 4.6, Sonnet 4.6, Haiku 4.5
 - **Extended thinking** — Full reasoning support with thinking variants (high/max)
 - **Usage tracking** — Built-in `/usage` command shows subscription utilization
+- **Self-registering** — Models are registered automatically, no manual provider config needed
 
 ## Installation
 
-You do not need to install the package manually — OpenCode auto-installs it when it first loads your config.
-
-Just add the following to `.opencode/opencode.json` in your project (or `~/.config/opencode/opencode.json` globally):
+Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/opencode.json` globally):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@xtruder/opencode-claude-max-plugin"]
+}
+```
+
+That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6) at startup via the OpenCode config hook. No separate `provider` block is needed.
+
+Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
+
+### Custom model options
+
+If you want to override model settings (e.g. thinking budgets, variants), you can add a `provider` block alongside the plugin:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@xtruder/opencode-claude-max-plugin"],
   "provider": {
     "anthropic-sdk": {
-      "npm": "@xtruder/opencode-claude-max-plugin",
-      "name": "Anthropic SDK",
       "models": {
         "claude-sonnet-4-6": {
-          "name": "Claude Sonnet 4.6",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 64000 },
           "options": {
             "thinking": { "type": "enabled", "budgetTokens": 1024 }
           },
@@ -39,29 +46,6 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
             "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
-        },
-        "claude-opus-4-6": {
-          "name": "Claude Opus 4.6",
-          "attachment": false,
-          "reasoning": true,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 1000000, "output": 64000 },
-          "options": {
-            "thinking": { "type": "adaptive" }
-          },
-          "variants": {
-            "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
-          }
-        },
-        "claude-haiku-4-5-20251001": {
-          "name": "Claude Haiku 4.5",
-          "attachment": false,
-          "reasoning": false,
-          "tool_call": true,
-          "temperature": true,
-          "limit": { "context": 200000, "output": 8192 }
         }
       }
     }
@@ -69,7 +53,7 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
 }
 ```
 
-Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
+Config-level settings are merged with plugin defaults — you only need to specify what you want to override.
 
 ## Authentication
 
@@ -130,7 +114,7 @@ for await (const chunk of result.textStream) {
 ```bash
 bun install
 bun run build
-bun run test    # 17 integration tests (requires ANTHROPIC_API_KEY or Claude Code credentials)
+bun run test    # integration tests (requires ANTHROPIC_API_KEY or Claude Code credentials)
 ```
 
 See [RESEARCH.md](RESEARCH.md) for detailed reverse-engineering findings on how we matched Claude Code's request format.
