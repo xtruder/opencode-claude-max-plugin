@@ -1,9 +1,6 @@
-import type {
-  LanguageModelV2StreamPart,
-  LanguageModelV2FinishReason,
-} from "@ai-sdk/provider"
+import type { LanguageModelV2StreamPart, LanguageModelV2FinishReason } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
-import { toOpencodeToolName } from "./tool-names.js"
+import { toOpencodeToolName } from "./tool-names.ts"
 
 type MessageStreamEvent = Anthropic.MessageStreamEvent
 
@@ -69,7 +66,11 @@ export function convertStream(
               usage: {
                 inputTokens: inputTokens ?? 0,
                 outputTokens: outputTokens ?? 0,
-                totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0) + (cachedInputTokens ?? 0) + (cacheCreationTokens ?? 0),
+                totalTokens:
+                  (inputTokens ?? 0) +
+                  (outputTokens ?? 0) +
+                  (cachedInputTokens ?? 0) +
+                  (cacheCreationTokens ?? 0),
                 cachedInputTokens: cachedInputTokens,
               },
               providerMetadata: {
@@ -188,9 +189,11 @@ function processEvent(
         parts.push({
           type: "reasoning-end",
           id: state.id,
-          ...(state.signature ? {
-            providerMetadata: { anthropic: { signature: state.signature } },
-          } : {}),
+          ...(state.signature
+            ? {
+                providerMetadata: { anthropic: { signature: state.signature } },
+              }
+            : {}),
         })
       } else if (state.type === "tool_use") {
         parts.push({ type: "tool-input-end", id: state.id })

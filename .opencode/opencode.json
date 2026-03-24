@@ -17,7 +17,7 @@
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-opus-4-6": {
@@ -32,7 +32,7 @@
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-haiku-4-5-20251001": {

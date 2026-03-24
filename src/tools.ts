@@ -4,7 +4,7 @@ import type {
   LanguageModelV2ToolChoice,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
-import { toClaudeToolName } from "./tool-names.js"
+import { toClaudeToolName } from "./tool-names.ts"
 
 type AnthropicTool = Anthropic.Tool
 type AnthropicToolChoice = Anthropic.MessageCreateParams["tool_choice"]
@@ -41,7 +41,9 @@ export function convertTools(
     .map((tool) => ({
       name: toClaudeToolName(tool.name),
       description: tool.description ?? "",
-      input_schema: cleanSchema(tool.inputSchema as Record<string, any>) as AnthropicTool["input_schema"],
+      input_schema: cleanSchema(
+        tool.inputSchema as Record<string, any>,
+      ) as AnthropicTool["input_schema"],
     }))
 }
 

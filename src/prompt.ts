@@ -1,6 +1,6 @@
 import type { LanguageModelV2Prompt, LanguageModelV2Message } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
-import { toClaudeToolName } from "./tool-names.js"
+import { toClaudeToolName } from "./tool-names.ts"
 
 type AnthropicMessage = Anthropic.MessageCreateParams["messages"][number]
 type AnthropicContentBlock = Anthropic.ContentBlockParam
@@ -92,24 +92,26 @@ function convertAssistantMessage(
           content.push({ type: "text", text: part.text })
         }
         break
-      case "reasoning": {
-        // Map reasoning to Anthropic thinking blocks
-        // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
-        // or providerOptions (set by the caller)
-        const signature = (part as any).providerMetadata?.anthropic?.signature
-          ?? (part as any).providerOptions?.anthropic?.signature
-          ?? ""
-        if (signature) {
-          content.push({
-            type: "thinking",
-            thinking: part.text,
-            signature,
-          } as any)
+      case "reasoning":
+        {
+          // Map reasoning to Anthropic thinking blocks
+          // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
+          // or providerOptions (set by the caller)
+          const signature =
+            (part as any).providerMetadata?.anthropic?.signature ??
+            (part as any).providerOptions?.anthropic?.signature ??
+            ""
+          if (signature) {
+            content.push({
+              type: "thinking",
+              thinking: part.text,
+              signature,
+            } as any)
+          }
+          // No signature → skip the block entirely. Anthropic rejects both
+          // empty signatures and empty redacted_thinking data.
+          break
         }
-        // No signature → skip the block entirely. Anthropic rejects both
-        // empty signatures and empty redacted_thinking data.
-        break
-      }
         break
       case "tool-call":
         content.push({
@@ -142,16 +144,18 @@ function convertToolMessage(
       type: "tool_result",
       tool_use_id: part.toolCallId,
       content: resultContent,
-      is_error: part.output.type === "error-text" || part.output.type === "error-json" ? true : undefined,
+      is_error:
+        part.output.type === "error-text" || part.output.type === "error-json" ? true : undefined,
     } as any)
   }
 
   return { role: "user", content }
 }
 
-function formatToolResultContent(
-  output: { type: string; value: any },
-): string | Array<{ type: "text"; text: string }> {
+function formatToolResultContent(output: {
+  type: string
+  value: any
+}): string | Array<{ type: "text"; text: string }> {
   switch (output.type) {
     case "text":
     case "error-text":

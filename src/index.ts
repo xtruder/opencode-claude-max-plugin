@@ -1,7 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk"
-import { AnthropicSDKModel } from "./model.js"
-import { readClaudeCredentials, isExpired } from "./credentials.js"
+import { AnthropicSDKModel } from "./model.ts"
+import { getCachedCredentials } from "./credentials.ts"
+import { cachedUsage } from "./usage-cache.ts"
 import type { LanguageModelV2 } from "@ai-sdk/provider"
+import type { Plugin } from "@opencode-ai/plugin"
 
 /**
  * Claude Code CLI version to impersonate.
@@ -13,7 +15,7 @@ const CLAUDE_CODE_VERSION = "2.1.81"
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
  */
-export const OAUTH_BETAS = [
+const OAUTH_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
@@ -23,19 +25,67 @@ export const OAUTH_BETAS = [
 ]
 
 /**
- * Beta flag that enables 1M context window. Only sent when model ID
- * includes [1m] suffix — e.g. "claude-sonnet-4-6[1m]".
- * Claude Code checks: /\[1m\]/i.test(modelId) before including this.
+ * Beta flag that enables 1M context window. Only sent when request body
+ * exceeds the standard context threshold (~600K chars).
  */
-export const CONTEXT_1M_BETA = "context-1m-2025-08-07"
+const CONTEXT_1M_BETA = "context-1m-2025-08-07"
 
 /**
  * Beta flags for regular API key auth (no OAuth).
  */
-export const API_KEY_BETAS = [
-  "interleaved-thinking-2025-05-14",
-  "fine-grained-tool-streaming-2025-05-14",
-]
+const API_KEY_BETAS = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
+
+const PACKAGE_NAME = "@xtruder/opencode-claude-max-plugin"
+const PROVIDER_ID = "anthropic-sdk"
+
+/**
+ * Models registered by the plugin. Only the three stable aliases —
+ * users on Claude Max do not pay per-token, but real pricing is listed
+ * for informational purposes in the model picker.
+ *
+ * Costs are in USD per million tokens.
+ */
+const PLUGIN_MODELS = {
+  "claude-haiku-4-5": {
+    name: "Claude Haiku 4.5",
+    reasoning: false,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    limit: { context: 200_000, output: 8_192 },
+    cost: { input: 0.8, output: 4.0, cache_read: 0.08, cache_write: 1.0 },
+    modalities: {
+      input: ["text", "image"] as Array<"text" | "image">,
+      output: ["text"] as Array<"text">,
+    },
+  },
+  "claude-sonnet-4-6": {
+    name: "Claude Sonnet 4.6",
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    limit: { context: 200_000, output: 16_000 },
+    cost: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
+    modalities: {
+      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+      output: ["text"] as Array<"text">,
+    },
+  },
+  "claude-opus-4-6": {
+    name: "Claude Opus 4.6",
+    reasoning: true,
+    tool_call: true,
+    attachment: true,
+    temperature: true,
+    limit: { context: 200_000, output: 32_000 },
+    cost: { input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75 },
+    modalities: {
+      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+      output: ["text"] as Array<"text">,
+    },
+  },
+}
 
 export interface AnthropicSDKProviderOptions {
   /**
@@ -82,22 +132,6 @@ export interface AnthropicSDKProvider {
   languageModel(modelId: string): LanguageModelV2
 }
 
-/**
- * Cached ratelimit usage from the most recent API response headers.
- * Updated on every successful inference call — same data Claude Code
- * reads for its /usage display. No extra API call needed.
- */
-export interface CachedUsage {
-  fiveHourUtil?: number
-  sevenDayUtil?: number
-  fiveHourReset?: number
-  sevenDayReset?: number
-  overageStatus?: string
-  timestamp?: number
-}
-
-export const cachedUsage: CachedUsage = {}
-
 function resolveAuth(options: AnthropicSDKProviderOptions): {
   apiKey?: string | null
   authToken?: string | null
@@ -105,7 +139,7 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
 } {
   // 1. Explicit API key
   if (options.apiKey) {
-    return { apiKey: options.apiKey, isOAuth: false }
+    return { apiKey: options.apiKey as string, isOAuth: false }
   }
 
   // 2. Environment variable
@@ -113,15 +147,11 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
     return { apiKey: process.env.ANTHROPIC_API_KEY, isOAuth: false }
   }
 
-  // 3. Claude Code credentials file
-  const creds = readClaudeCredentials(options.credentialsPath)
+  // 3. Claude Code credentials file (with automatic CLI refresh)
+  const credentialsPath =
+    typeof options.credentialsPath === "string" ? options.credentialsPath : undefined
+  const creds = getCachedCredentials(credentialsPath)
   if (creds) {
-    if (isExpired(creds)) {
-      console.warn(
-        "[anthropic-sdk-provider] Claude Code OAuth token is expired. " +
-        "Run 'claude' to re-authenticate, then restart.",
-      )
-    }
     return { apiKey: null, authToken: creds.accessToken, isOAuth: true }
   }
 
@@ -134,19 +164,16 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
  * When using OAuth credentials from Claude Code, requests are made to
  * look identical to Claude Code CLI requests — same headers, user-agent,
  * beta flags, billing system block, and body structure.
+ *
+ * OpenCode discovers this function by looking for an export whose name
+ * starts with "create" when loading the npm package as a provider.
  */
 export function createAnthropicSDK(
   options: AnthropicSDKProviderOptions = {},
 ): AnthropicSDKProvider {
-  const {
-    apiKey,
-    baseURL,
-    headers,
-    fetch: customFetch,
-    name = "anthropic-sdk",
-    credentialsPath,
-    ...rest
-  } = options
+  const { baseURL, headers, fetch: customFetch, name = "anthropic-sdk" } = options
+  const credentialsPath =
+    typeof options.credentialsPath === "string" ? options.credentialsPath : undefined
 
   const auth = resolveAuth(options)
 
@@ -165,11 +192,6 @@ export function createAnthropicSDK(
     defaultHeaders["x-stainless-package-version"] = "0.74.0"
   }
 
-  // Wrap fetch to detect subscription rate limits and stop SDK from retrying
-  // indefinitely. Claude Code uses the anthropic-ratelimit-unified-status
-  // response header to detect this — "over_limit" means subscription exhausted.
-  // We also check retry-after > 120s as a fallback (subscription limits reset
-  // in hours, transient overloads in seconds).
   /**
    * Approximate body size threshold (in bytes) for switching to 1M context.
    * Standard context is ~200K tokens ≈ ~800K chars. We trigger at ~600K chars
@@ -179,15 +201,28 @@ export function createAnthropicSDK(
 
   const baseFetch = customFetch ?? globalThis.fetch
   const wrappedFetch = async (url: string | URL | Request, init?: RequestInit) => {
+    // For OAuth requests, re-read credentials on every call so we pick up
+    // tokens refreshed by the CLI (matches opencode-claude-auth behavior).
+    if (auth.isOAuth && init) {
+      const freshCreds = getCachedCredentials(credentialsPath)
+      if (freshCreds) {
+        const reqHeaders = new Headers(init.headers)
+        reqHeaders.set("authorization", `Bearer ${freshCreds.accessToken}`)
+        init = { ...init, headers: reqHeaders }
+      }
+    }
+
     // Auto-enable 1M context when the request body is large enough.
-    // This avoids needing [1m] model suffixes — just sends the beta
-    // when the context exceeds the standard window threshold.
-    if (init?.body && typeof init.body === "string" && init.body.length > CONTEXT_1M_BODY_THRESHOLD) {
-      const headers = new Headers(init.headers)
-      const existingBetas = headers.get("anthropic-beta") ?? ""
+    if (
+      init?.body &&
+      typeof init.body === "string" &&
+      init.body.length > CONTEXT_1M_BODY_THRESHOLD
+    ) {
+      const betaHeaders = new Headers(init.headers)
+      const existingBetas = betaHeaders.get("anthropic-beta") ?? ""
       if (!existingBetas.includes(CONTEXT_1M_BETA)) {
-        headers.set("anthropic-beta", existingBetas + "," + CONTEXT_1M_BETA)
-        init = { ...init, headers }
+        betaHeaders.set("anthropic-beta", existingBetas + "," + CONTEXT_1M_BETA)
+        init = { ...init, headers: betaHeaders }
       }
     }
 
@@ -197,10 +232,17 @@ export function createAnthropicSDK(
     const h5 = resp.headers.get("anthropic-ratelimit-unified-5h-utilization")
     if (h5 != null) {
       cachedUsage.fiveHourUtil = parseFloat(h5)
-      cachedUsage.sevenDayUtil = parseFloat(resp.headers.get("anthropic-ratelimit-unified-7d-utilization") ?? "0")
-      cachedUsage.fiveHourReset = parseInt(resp.headers.get("anthropic-ratelimit-unified-5h-reset") ?? "0")
-      cachedUsage.sevenDayReset = parseInt(resp.headers.get("anthropic-ratelimit-unified-7d-reset") ?? "0")
-      cachedUsage.overageStatus = resp.headers.get("anthropic-ratelimit-unified-overage-status") ?? undefined
+      cachedUsage.sevenDayUtil = parseFloat(
+        resp.headers.get("anthropic-ratelimit-unified-7d-utilization") ?? "0",
+      )
+      cachedUsage.fiveHourReset = parseInt(
+        resp.headers.get("anthropic-ratelimit-unified-5h-reset") ?? "0",
+      )
+      cachedUsage.sevenDayReset = parseInt(
+        resp.headers.get("anthropic-ratelimit-unified-7d-reset") ?? "0",
+      )
+      cachedUsage.overageStatus =
+        resp.headers.get("anthropic-ratelimit-unified-overage-status") ?? undefined
       cachedUsage.timestamp = Date.now()
     }
 
@@ -212,18 +254,16 @@ export function createAnthropicSDK(
       const bodyText = await resp.clone().text()
       const isLongContextLimit = bodyText.includes("Extra usage is required for long context")
 
-      const isSubscriptionLimit = isLongContextLimit
-        || unifiedStatus === "over_limit"
-        || retryAfter > 120
+      const isSubscriptionLimit =
+        isLongContextLimit || unifiedStatus === "over_limit" || retryAfter > 120
 
       if (isSubscriptionLimit) {
-        const body = bodyText
-        const headers = new Headers(resp.headers)
-        headers.set("x-should-retry", "false")
-        return new Response(body, {
+        const retryHeaders = new Headers(resp.headers)
+        retryHeaders.set("x-should-retry", "false")
+        return new Response(bodyText, {
           status: resp.status,
           statusText: resp.statusText,
-          headers,
+          headers: retryHeaders,
         })
       }
     }
@@ -240,20 +280,47 @@ export function createAnthropicSDK(
 
   return {
     languageModel(modelId: string): LanguageModelV2 {
-      return new AnthropicSDKModel(modelId, client, name, auth.isOAuth)
+      return new AnthropicSDKModel(modelId, client, name as string, auth.isOAuth)
     },
   }
 }
 
-// Default export for convenience
-export default createAnthropicSDK
+/**
+ * OpenCode plugin that self-registers the anthropic-sdk provider and its
+ * supported models into the running config on startup.
+ *
+ * Add this package to the `plugin` array in your opencode.json:
+ *
+ *   { "plugin": ["@xtruder/opencode-claude-max-plugin"] }
+ *
+ * The plugin uses the `config` hook which is called after config is loaded
+ * but before providers are initialized. We mutate the Config object in-place
+ * to inject the provider definition and model list.
+ *
+ * OpenCode's plugin loader iterates all module exports and calls each one
+ * as a Plugin function. `createAnthropicSDK` is also called — it returns
+ * { languageModel } which is harmlessly pushed to the hooks list with all
+ * hook slots undefined (no-ops).
+ */
+export const anthropicSDKPlugin: Plugin = async () => {
+  return {
+    config: async (cfg) => {
+      // Inject the anthropic-sdk provider with its model list.
+      // The config object is passed by reference — mutating it in-place
+      // is the only way to register models during plugin init (before
+      // the server is ready for HTTP requests).
+      if (!cfg.provider) {
+        cfg.provider = {}
+      }
+      cfg.provider[PROVIDER_ID] = {
+        ...cfg.provider[PROVIDER_ID],
+        npm: PACKAGE_NAME,
+        models: PLUGIN_MODELS,
+      }
+    },
+  }
+}
 
-// Re-export types
-export { AnthropicSDKModel } from "./model.js"
-export type { ConvertedPrompt } from "./prompt.js"
-export {
-  readClaudeCredentials,
-  isExpired,
-  getCredentialsPath,
-  type ClaudeOAuthCredentials,
-} from "./credentials.js"
+// Default export — used by OpenCode as the AI SDK provider factory.
+// OpenCode finds this via: mod[Object.keys(mod).find(k => k.startsWith("create"))]
+export default createAnthropicSDK

@@ -4,7 +4,7 @@
  * Fetches usage data from the /api/oauth/usage endpoint
  * (same endpoint Claude Code's /usage command uses).
  */
-import { readClaudeCredentials, isExpired } from "./credentials.js"
+import { readClaudeCredentials, isExpired } from "./credentials.ts"
 
 export interface UsageWindow {
   utilization: number // percentage (0-100)
@@ -39,7 +39,7 @@ export async function fetchUsage(credentialsPath?: string): Promise<UsageData | 
 
   const resp = await fetch(USAGE_URL, {
     headers: {
-      "authorization": `Bearer ${creds.accessToken}`,
+      authorization: `Bearer ${creds.accessToken}`,
       "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
       "content-type": "application/json",
       "user-agent": "claude-cli/2.1.81 (external, sdk-cli)",
@@ -50,7 +50,7 @@ export async function fetchUsage(credentialsPath?: string): Promise<UsageData | 
   if (!resp.ok) {
     const body = await resp.text().catch(() => "")
     const msg = body.includes("message")
-      ? JSON.parse(body)?.error?.message ?? body
+      ? (JSON.parse(body)?.error?.message ?? body)
       : `HTTP ${resp.status}`
     throw new Error(`Usage API error: ${msg}`)
   }
@@ -145,7 +145,9 @@ export function formatUsage(data: UsageData): string {
       lines.push("  Extra usage")
       lines.push(`  ${progressBar(pct)}  ${pct}% used`)
       if (data.extra_usage.monthly_limit != null) {
-        lines.push(`  $${data.extra_usage.used_credits?.toFixed(2) ?? "0.00"} / $${data.extra_usage.monthly_limit.toFixed(2)}`)
+        lines.push(
+          `  $${data.extra_usage.used_credits?.toFixed(2) ?? "0.00"} / $${data.extra_usage.monthly_limit.toFixed(2)}`,
+        )
       }
     } else {
       lines.push("  Extra usage: disabled")

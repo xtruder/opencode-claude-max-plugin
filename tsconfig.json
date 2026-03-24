@@ -12,8 +12,10 @@
     "sourceMap": true,
     "rootDir": "src",
     "lib": ["ESNext"],
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/test.ts", "node_modules", "build", "opencode-ref"]
+  "exclude": ["src/**/*.test.ts", "node_modules", "build", "opencode-ref"]
 }

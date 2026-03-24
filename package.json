@@ -2,6 +2,17 @@
   "name": "@xtruder/opencode-claude-max-plugin",
   "version": "0.1.11",
   "description": "OpenCode plugin for Claude Max/Pro subscription via @anthropic-ai/sdk - uses Claude Code OAuth credentials",
+  "keywords": [
+    "ai-sdk",
+    "anthropic",
+    "claude",
+    "opencode",
+    "provider"
+  ],
+  "license": "MIT",
+  "files": [
+    "build"
+  ],
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -9,42 +20,35 @@
     ".": {
       "import": "./build/index.js",
       "types": "./build/index.d.ts"
-    },
-    "./agent": {
-      "import": "./build/agent-index.js",
-      "types": "./build/agent-index.d.ts"
     }
   },
-  "bin": {
-    "claude-usage": "build/usage-cli.js"
-  },
-  "files": [
-    "build"
-  ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/agent-index.ts ./src/usage-cli.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
-    "test": "bun run src/test.ts"
+    "build": "bun build ./src/index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
+    "test": "bun test --concurrency 1 src/*.test.ts",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint --fix src",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "prepare": "simple-git-hooks"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@anthropic-ai/sdk": "0.74.0"
-  },
-  "peerDependencies": {
-    "@ai-sdk/provider": ">=2.0.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "2.0.1",
     "@ai-sdk/provider-utils": "3.0.2",
+    "@opencode-ai/plugin": "^1.3.0",
     "ai": "5.0.124",
     "bun-types": "^1.3.11",
+    "oxfmt": "^0.41.0",
+    "oxlint": "^1.56.0",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "^5.7.0"
   },
-  "keywords": [
-    "opencode",
-    "anthropic",
-    "claude",
-    "ai-sdk",
-    "provider"
-  ],
-  "license": "MIT"
+  "peerDependencies": {
+    "@ai-sdk/provider": ">=2.0.0"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bun run lint && bun run format:check"
+  }
 }

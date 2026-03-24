@@ -21,11 +21,7 @@
         "model": {
           "description": "Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent.",
           "type": "string",
-          "enum": [
-            "sonnet",
-            "opus",
-            "haiku"
-          ]
+          "enum": ["sonnet", "opus", "haiku"]
         },
         "run_in_background": {
           "description": "Set to true to run this agent in the background. You will be notified when it completes.",
@@ -34,15 +30,10 @@
         "isolation": {
           "description": "Isolation mode. \"worktree\" creates a temporary git worktree so the agent works on an isolated copy of the repo.",
           "type": "string",
-          "enum": [
-            "worktree"
-          ]
+          "enum": ["worktree"]
         }
       },
-      "required": [
-        "description",
-        "prompt"
-      ],
+      "required": ["description", "prompt"],
       "additionalProperties": false
     }
   },
@@ -70,11 +61,7 @@
           "maximum": 600000
         }
       },
-      "required": [
-        "task_id",
-        "block",
-        "timeout"
-      ],
+      "required": ["task_id", "block", "timeout"],
       "additionalProperties": false
     }
   },
@@ -106,9 +93,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "command"
-      ],
+      "required": ["command"],
       "additionalProperties": false
     }
   },
@@ -128,9 +113,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "pattern"
-      ],
+      "required": ["pattern"],
       "additionalProperties": false
     }
   },
@@ -156,11 +139,7 @@
         "output_mode": {
           "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"files_with_matches\".",
           "type": "string",
-          "enum": [
-            "content",
-            "files_with_matches",
-            "count"
-          ]
+          "enum": ["content", "files_with_matches", "count"]
         },
         "-B": {
           "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.",
@@ -203,9 +182,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "pattern"
-      ],
+      "required": ["pattern"],
       "additionalProperties": false
     }
   },
@@ -225,19 +202,14 @@
               "tool": {
                 "description": "The tool this prompt applies to",
                 "type": "string",
-                "enum": [
-                  "Bash"
-                ]
+                "enum": ["Bash"]
               },
               "prompt": {
                 "description": "Semantic description of the action, e.g. \"run tests\", \"install dependencies\"",
                 "type": "string"
               }
             },
-            "required": [
-              "tool",
-              "prompt"
-            ],
+            "required": ["tool", "prompt"],
             "additionalProperties": false
           }
         }
@@ -269,9 +241,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "file_path"
-      ],
+      "required": ["file_path"],
       "additionalProperties": false
     }
   },
@@ -300,11 +270,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "file_path",
-        "old_string",
-        "new_string"
-      ],
+      "required": ["file_path", "old_string", "new_string"],
       "additionalProperties": false
     }
   },
@@ -324,10 +290,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "file_path",
-        "content"
-      ],
+      "required": ["file_path", "content"],
       "additionalProperties": false
     }
   },
@@ -353,25 +316,15 @@
         "cell_type": {
           "description": "The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required.",
           "type": "string",
-          "enum": [
-            "code",
-            "markdown"
-          ]
+          "enum": ["code", "markdown"]
         },
         "edit_mode": {
           "description": "The type of edit to make (replace, insert, delete). Defaults to replace.",
           "type": "string",
-          "enum": [
-            "replace",
-            "insert",
-            "delete"
-          ]
+          "enum": ["replace", "insert", "delete"]
         }
       },
-      "required": [
-        "notebook_path",
-        "new_source"
-      ],
+      "required": ["notebook_path", "new_source"],
       "additionalProperties": false
     }
   },
@@ -392,10 +345,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "url",
-        "prompt"
-      ],
+      "required": ["url", "prompt"],
       "additionalProperties": false
     }
   },
@@ -418,29 +368,19 @@
               },
               "status": {
                 "type": "string",
-                "enum": [
-                  "pending",
-                  "in_progress",
-                  "completed"
-                ]
+                "enum": ["pending", "in_progress", "completed"]
               },
               "activeForm": {
                 "type": "string",
                 "minLength": 1
               }
             },
-            "required": [
-              "content",
-              "status",
-              "activeForm"
-            ],
+            "required": ["content", "status", "activeForm"],
             "additionalProperties": false
           }
         }
       },
-      "required": [
-        "todos"
-      ],
+      "required": ["todos"],
       "additionalProperties": false
     }
   },
@@ -471,9 +411,7 @@
           }
         }
       },
-      "required": [
-        "query"
-      ],
+      "required": ["query"],
       "additionalProperties": false
     }
   },
@@ -540,10 +478,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "label",
-                    "description"
-                  ],
+                  "required": ["label", "description"],
                   "additionalProperties": false
                 }
               },
@@ -553,12 +488,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "question",
-              "header",
-              "options",
-              "multiSelect"
-            ],
+            "required": ["question", "header", "options", "multiSelect"],
             "additionalProperties": false
           }
         },
@@ -605,9 +535,7 @@
           "additionalProperties": false
         }
       },
-      "required": [
-        "questions"
-      ],
+      "required": ["questions"],
       "additionalProperties": false
     }
   },
@@ -627,9 +555,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "skill"
-      ],
+      "required": ["skill"],
       "additionalProperties": false
     }
   },
@@ -670,19 +596,14 @@
         "action": {
           "description": "\"keep\" leaves the worktree and branch on disk; \"remove\" deletes both.",
           "type": "string",
-          "enum": [
-            "keep",
-            "remove"
-          ]
+          "enum": ["keep", "remove"]
         },
         "discard_changes": {
           "description": "Required true when action is \"remove\" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise.",
           "type": "boolean"
         }
       },
-      "required": [
-        "action"
-      ],
+      "required": ["action"],
       "additionalProperties": false
     }
   },
@@ -706,10 +627,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "cron",
-        "prompt"
-      ],
+      "required": ["cron", "prompt"],
       "additionalProperties": false
     }
   },
@@ -725,9 +643,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id"
-      ],
+      "required": ["id"],
       "additionalProperties": false
     }
   },

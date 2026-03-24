@@ -37,7 +37,7 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-opus-4-6": {
@@ -52,7 +52,7 @@ Just add the following to `.opencode/opencode.json` in your project (or `~/.conf
           },
           "variants": {
             "high": { "thinking": { "type": "enabled", "budgetTokens": 10000 } },
-            "max":  { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
+            "max": { "thinking": { "type": "enabled", "budgetTokens": 32000 } }
           }
         },
         "claude-haiku-4-5-20251001": {
@@ -112,16 +112,16 @@ After adding the config, run `/usage` inside OpenCode to see your subscription u
 The plugin also works as a standalone Vercel AI SDK provider:
 
 ```typescript
-import { createAnthropicSDK } from "@xtruder/opencode-claude-max-plugin";
-import { streamText } from "ai";
+import { createAnthropicSDK } from "@xtruder/opencode-claude-max-plugin"
+import { streamText } from "ai"
 
 // Uses ~/.claude/.credentials.json automatically
-const provider = createAnthropicSDK();
-const model = provider.languageModel("claude-sonnet-4-6");
+const provider = createAnthropicSDK()
+const model = provider.languageModel("claude-sonnet-4-6")
 
-const result = streamText({ model, prompt: "Hello!" });
+const result = streamText({ model, prompt: "Hello!" })
 for await (const chunk of result.textStream) {
-  process.stdout.write(chunk);
+  process.stdout.write(chunk)
 }
 ```
 

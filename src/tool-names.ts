@@ -35,9 +35,6 @@ const BUILTIN_OPENCODE_TO_CLAUDE: Record<string, string> = {
   lsp: "LSP",
 }
 
-/** Set of all known built-in OpenCode tool names for quick lookup. */
-const BUILTIN_OPENCODE_NAMES = new Set(Object.keys(BUILTIN_OPENCODE_TO_CLAUDE))
-
 /** Reverse map: Claude Code → OpenCode for built-in tools. */
 const BUILTIN_CLAUDE_TO_OPENCODE: Record<string, string> = {}
 for (const [oc, cc] of Object.entries(BUILTIN_OPENCODE_TO_CLAUDE)) {
@@ -54,7 +51,7 @@ let mcpServerNames: string[] | null = null
  * Explicitly set known MCP server names.
  */
 export function setKnownMcpServers(servers: string[]): void {
-  mcpServerNames = [...servers].sort((a, b) => b.length - a.length)
+  mcpServerNames = [...servers].toSorted((a, b) => b.length - a.length)
 }
 
 /**
@@ -87,7 +84,7 @@ function detectMcpServers(): string[] {
     }
   }
 
-  return [...servers].sort((a, b) => b.length - a.length)
+  return [...servers].toSorted((a, b) => b.length - a.length)
 }
 
 function getMcpServers(): string[] {
@@ -170,8 +167,10 @@ export function toOpencodeToolName(claudeName: string): string {
  */
 const SYSTEM_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
   // Replace OpenCode identity with Claude Code-style opening
-  [/^You are OpenCode, the best coding agent on the planet\.\s*\n\s*You are an interactive CLI tool that helps users with software engineering tasks\./m,
-   "You are an interactive agent that helps users with software engineering tasks."],
+  [
+    /^You are OpenCode, the best coding agent on the planet\.\s*\n\s*You are an interactive CLI tool that helps users with software engineering tasks\./m,
+    "You are an interactive agent that helps users with software engineering tasks.",
+  ],
 
   // "Task tool" / "task tool" / "the Task" → "Agent"
   [/\bTask\s+tool/g, "Agent tool"],

@@ -7,35 +7,41 @@ An OpenCode provider plugin that routes requests through `@anthropic-ai/sdk` usi
 ## Build, Test, and Release
 
 ### Build
+
 ```bash
 bun run build
 ```
+
 Bundles `src/index.ts`, `src/agent-index.ts`, `src/usage-cli.ts` to `build/` via Bun, then emits TypeScript declarations with `tsc`. Always rebuild after any source change before testing via OpenCode.
 
 ### Type check only (fast)
+
 ```bash
 npx tsc --noEmit
 ```
 
 ### Run all tests
+
 ```bash
 bun run src/test.ts
 # or
 ANTHROPIC_API_KEY=sk-ant-... bun run src/test.ts
 ```
+
 Tests run sequentially top-to-bottom. Requires either `ANTHROPIC_API_KEY` env var or valid `~/.claude/.credentials.json` from Claude Code.
 
 ### Run a single test
+
 There is no test runner with filtering. To run a single test, temporarily comment out the others or duplicate the specific `await test(...)` block at the bottom of `src/test.ts` and run the file. Tests are numbered with comments like `// ─── Test 5: ...`.
 
 ### Release
+
 ```bash
 npm version patch                # bumps version, commits, and creates git tag automatically
 git push origin main             # push the version commit
 git push origin vX.Y.Z           # push the tag (use the version printed by npm version)
 # GitHub Actions (.github/workflows/release.yml) handles npm publish automatically
 ```
-
 
 ---
 
@@ -57,9 +63,11 @@ cat > ~/.cache/opencode/package.json << 'EOF'
 EOF
 bun install
 ```
+
 Replace `/path/to/this/repo` with the actual path (e.g. `/home/user/Code/opencode-anthropic-sdk-provider`).
 
 ### Test a single prompt via CLI
+
 ```bash
 # Uses ~/.claude/.credentials.json automatically
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
@@ -68,11 +76,13 @@ opencode run -m "anthropic-sdk/claude-opus-4-6" "What model are you?"
 ```
 
 ### Test with tool use (file reading)
+
 ```bash
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Read package.json and tell me the package name"
 ```
 
 ### Check usage
+
 ```bash
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" /usage
 # or directly:
@@ -80,12 +90,15 @@ node ~/.cache/opencode/node_modules/@xtruder/opencode-claude-max-plugin/build/us
 ```
 
 ### Debug with logs
+
 ```bash
 opencode run --print-logs --log-level DEBUG -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK" 2>&1 | grep -E "install|error|ERROR"
 ```
 
 ### Intercept API requests (compare with Claude Code)
+
 Start a logging proxy, then run both tools through it:
+
 ```bash
 # Terminal 1: start proxy
 bun -e "
@@ -120,19 +133,18 @@ echo "Say OK" | claude -p --output-format json | python3 -c "import json,sys; d=
 
 ```
 src/
-├── index.ts        # createAnthropicSDK() factory, auth resolution, fetch wrapper
-├── model.ts        # AnthropicSDKModel — LanguageModelV2 (doGenerate + doStream)
-├── prompt.ts       # AI SDK prompt → Anthropic Messages API converter
-├── stream.ts       # Anthropic SSE events → AI SDK LanguageModelV2StreamPart
-├── tools.ts        # AI SDK tools → Anthropic format + schema cleanup
-├── tool-names.ts   # Bidirectional tool name mapping (OpenCode ↔ Claude Code)
-├── credentials.ts  # Claude Code OAuth credentials reader
-├── usage.ts        # /api/oauth/usage API client + formatter
-├── usage-cli.ts    # Standalone CLI for displaying usage
-├── agent-index.ts  # Alternate entry using @anthropic-ai/claude-agent-sdk
-├── agent-model.ts  # Agent SDK model wrapper
-├── test.ts         # 17 integration tests (excluded from build)
-└── fixtures/       # Captured OpenCode request data for caching tests
+├── index.ts              # createAnthropicSDK() factory, auth resolution, fetch wrapper
+├── model.ts              # AnthropicSDKModel — LanguageModelV2 (doGenerate + doStream)
+├── prompt.ts             # AI SDK prompt → Anthropic Messages API converter
+├── stream.ts             # Anthropic SSE events → AI SDK LanguageModelV2StreamPart
+├── tools.ts              # AI SDK tools → Anthropic format + schema cleanup
+├── tool-names.ts         # Bidirectional tool name mapping (OpenCode ↔ Claude Code)
+├── credentials.ts        # Claude Code OAuth credentials reader + CLI refresh
+├── usage.ts              # /api/oauth/usage API client + formatter
+├── credentials.test.ts   # Unit + integration tests for credentials
+├── index.test.ts         # Tests for createAnthropicSDK factory
+├── model.test.ts         # Integration tests for model (API calls)
+└── fixtures/             # Captured OpenCode request data for caching tests
     ├── opencode-system.txt
     └── opencode-tools.json
 ```

@@ -7,12 +7,12 @@ import type {
   LanguageModelV2CallWarning,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
-import { convertPrompt } from "./prompt.js"
-import { cachedUsage, type CachedUsage } from "./index.js"
-import { fetchUsage, formatUsage } from "./usage.js"
-import { convertTools, convertToolChoice } from "./tools.js"
-import { convertStream } from "./stream.js"
-import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.js"
+import { convertPrompt } from "./prompt.ts"
+import { cachedUsage, type CachedUsage } from "./usage-cache.ts"
+import { fetchUsage, formatUsage } from "./usage.ts"
+import { convertTools, convertToolChoice } from "./tools.ts"
+import { convertStream } from "./stream.ts"
+import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.ts"
 import { randomBytes, createHash } from "node:crypto"
 import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 
@@ -30,15 +30,14 @@ type DoStreamResult = Awaited<ReturnType<LanguageModelV2["doStream"]>>
 function handleApiError(error: unknown): never {
   if (error instanceof RateLimitError || (error instanceof APIError && error.status === 429)) {
     const h = (error as any).headers
-    const getHeader = (name: string): string | null =>
-      h?.get?.(name) ?? h?.[name] ?? null
+    const getHeader = (name: string): string | null => h?.get?.(name) ?? h?.[name] ?? null
     const errorMsg = (error as any).error?.error?.message ?? (error as any).message ?? ""
 
     // Check for long context billing requirement (needs "extra usage" enabled)
     if (errorMsg.includes("Extra usage is required for long context")) {
       throw new Error(
         `Long context request requires "Extra usage" to be enabled in your Claude subscription. ` +
-        `Go to claude.ai/settings and enable Extra usage, or reduce context size.`
+          `Go to claude.ai/settings and enable Extra usage, or reduce context size.`,
       )
     }
 
@@ -51,20 +50,18 @@ function handleApiError(error: unknown): never {
     const isSubscriptionLimit = unifiedStatus === "over_limit" || retryAfter > 120
 
     if (isSubscriptionLimit) {
-      const resetInfo = retryAfter > 0
-        ? ` Resets in ~${Math.ceil(retryAfter / 60)} minutes.`
-        : ""
+      const resetInfo = retryAfter > 0 ? ` Resets in ~${Math.ceil(retryAfter / 60)} minutes.` : ""
       throw new Error(
         `Claude subscription rate limit reached.${resetInfo} ` +
-        `Use /rate-limit-options in Claude Code to check your options, ` +
-        `or wait for your limit to reset.`
+          `Use /rate-limit-options in Claude Code to check your options, ` +
+          `or wait for your limit to reset.`,
       )
     }
 
     // Transient rate limit — the SDK already retried, still failing
     throw new Error(
       `Anthropic API rate limit exceeded after retries. ` +
-      (retryAfter > 0 ? `Retry after ${retryAfter}s.` : `Please try again shortly.`)
+        (retryAfter > 0 ? `Retry after ${retryAfter}s.` : `Please try again shortly.`),
     )
   }
   throw error
@@ -108,9 +105,7 @@ const IDENTITY_SYSTEM_BLOCK = {
  * Generate a device_id-like hash for the metadata user_id field.
  * Claude Code sends a deterministic device hash; we generate a stable one per process.
  */
-const DEVICE_ID = createHash("sha256")
-  .update(randomBytes(32))
-  .digest("hex")
+const DEVICE_ID = createHash("sha256").update(randomBytes(32)).digest("hex")
 
 function buildMetadata(): { user_id: string } {
   return {
@@ -155,10 +150,10 @@ function formatReset(epoch: number): string {
   return diffMs < 86400000 ? `Resets ${timeStr}` : `Resets ${dateStr}, ${timeStr}`
 }
 
-function formatCachedUsage(usage: CachedUsage): string {
-  const bar = (pct: number, width = 50) =>
-    "█".repeat(Math.round((pct / 100) * width)) + " ".repeat(width - Math.round((pct / 100) * width))
+const bar = (pct: number, width = 50) =>
+  "█".repeat(Math.round((pct / 100) * width)) + " ".repeat(width - Math.round((pct / 100) * width))
 
+function formatCachedUsage(usage: CachedUsage): string {
   const lines: string[] = []
   const h5 = Math.round((usage.fiveHourUtil ?? 0) * 100)
   lines.push("  Current session")
@@ -185,9 +180,7 @@ async function handleUsageCommand(): Promise<never> {
   // Primary: use cached ratelimit headers from last API response (free, instant)
   if (cachedUsage.timestamp) {
     throw new Error(
-      "Claude Subscription Usage\n" +
-      "─".repeat(52) + "\n" +
-      formatCachedUsage(cachedUsage),
+      "Claude Subscription Usage\n" + "─".repeat(52) + "\n" + formatCachedUsage(cachedUsage),
     )
   }
 
@@ -195,11 +188,7 @@ async function handleUsageCommand(): Promise<never> {
   try {
     const data = await fetchUsage()
     if (data) {
-      throw new Error(
-        "Claude Subscription Usage\n" +
-        "─".repeat(52) + "\n" +
-        formatUsage(data),
-      )
+      throw new Error("Claude Subscription Usage\n" + "─".repeat(52) + "\n" + formatUsage(data))
     }
   } catch (e: any) {
     // If it's our own formatted usage error, rethrow
@@ -207,9 +196,7 @@ async function handleUsageCommand(): Promise<never> {
     // Otherwise fall through to generic message
   }
 
-  throw new Error(
-    "No usage data available. Send a message first, then try /usage again.",
-  )
+  throw new Error("No usage data available. Send a message first, then try /usage again.")
 }
 
 export class AnthropicSDKModel implements LanguageModelV2 {
@@ -243,12 +230,9 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       warnings.push({ type: "unsupported-setting", setting: "seed" as any })
     }
 
-    const tools = options.toolChoice?.type === "none"
-      ? undefined
-      : convertTools(options.tools)
-    const toolChoice = options.toolChoice?.type === "none"
-      ? undefined
-      : convertToolChoice(options.toolChoice)
+    const tools = options.toolChoice?.type === "none" ? undefined : convertTools(options.tools)
+    const toolChoice =
+      options.toolChoice?.type === "none" ? undefined : convertToolChoice(options.toolChoice)
 
     // Build base params
     // Claude Code always streams with 64000 max_tokens. For non-streaming
@@ -279,15 +263,20 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       const rewrite = (s: string) => rewriteToolNamesInText(s)
       const SYSTEM_CACHE: Record<string, any> = { type: "ephemeral", ttl: "1h", scope: "global" }
       if (system) {
-        const contentBlocks = typeof system === "string"
-          ? [{ type: "text" as const, text: rewrite(system), cache_control: SYSTEM_CACHE }]
-          : (Array.isArray(system)
+        const contentBlocks =
+          typeof system === "string"
+            ? [{ type: "text" as const, text: rewrite(system), cache_control: SYSTEM_CACHE }]
+            : Array.isArray(system)
               ? system.map((b: any, i: number) =>
                   b.type === "text"
-                    ? { ...b, text: rewrite(b.text), ...(i === system.length - 1 ? { cache_control: SYSTEM_CACHE } : {}) }
-                    : b
+                    ? {
+                        ...b,
+                        text: rewrite(b.text),
+                        ...(i === system.length - 1 ? { cache_control: SYSTEM_CACHE } : {}),
+                      }
+                    : b,
                 )
-              : [{ ...(system as object), cache_control: SYSTEM_CACHE }])
+              : [{ ...(system as object), cache_control: SYSTEM_CACHE }]
         params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK, ...contentBlocks]
       } else {
         params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK]
@@ -315,13 +304,14 @@ export class AnthropicSDKModel implements LanguageModelV2 {
         ]
       } else if (Array.isArray(system)) {
         const blocks = system.map((b: any, i: number) =>
-          b.type === "text" && i === system.length - 1
-            ? { ...b, cache_control: CACHE }
-            : b
+          b.type === "text" && i === system.length - 1 ? { ...b, cache_control: CACHE } : b,
         )
         params.system = [{ ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE }, ...blocks]
       } else {
-        params.system = [{ ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE }, { ...(system as object), cache_control: CACHE }]
+        params.system = [
+          { ...IDENTITY_SYSTEM_BLOCK, cache_control: CACHE },
+          { ...(system as object), cache_control: CACHE },
+        ]
       }
     }
 
@@ -341,9 +331,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     // text is added — this is expected and unavoidable.
     if (params.messages && params.messages.length > 1) {
       const msgs = params.messages as any[]
-      const msgCache = this.isOAuth
-        ? { type: "ephemeral", ttl: "1h" }
-        : { type: "ephemeral" }
+      const msgCache = this.isOAuth ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" }
 
       // Find the last user message that contains tool_result blocks
       let cachedSomething = false
@@ -388,10 +376,8 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     // Merge provider options (e.g. thinking config, cache control)
     // OpenCode sends providerOptions keyed by providerID ("anthropic-sdk"),
     // but also check "anthropic" for direct AI SDK usage
-    const anthropicOptions = (
-      options.providerOptions?.["anthropic-sdk"]
-      ?? options.providerOptions?.anthropic
-    ) as Record<string, any> | undefined
+    const anthropicOptions = (options.providerOptions?.["anthropic-sdk"] ??
+      options.providerOptions?.anthropic) as Record<string, any> | undefined
     if (anthropicOptions) {
       // Handle thinking config — map AI SDK format to Anthropic SDK format
       if (anthropicOptions.thinking) {
@@ -422,12 +408,13 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     let response: Anthropic.Message
     try {
-      response = await this.client.messages.create({
-        ...params,
-        stream: false,
-      } as Anthropic.MessageCreateParamsNonStreaming,
+      response = (await this.client.messages.create(
+        {
+          ...params,
+          stream: false,
+        } as Anthropic.MessageCreateParamsNonStreaming,
         { signal: options.abortSignal },
-      ) as Anthropic.Message
+      )) as Anthropic.Message
     } catch (error) {
       handleApiError(error)
     }
@@ -472,7 +459,11 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
-        totalTokens: response.usage.input_tokens + response.usage.output_tokens + cacheReadTokens + cacheCreateTokens,
+        totalTokens:
+          response.usage.input_tokens +
+          response.usage.output_tokens +
+          cacheReadTokens +
+          cacheCreateTokens,
         cachedInputTokens: cacheReadTokens,
       },
       providerMetadata: {
@@ -495,10 +486,11 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     let anthropicStream
     try {
-      anthropicStream = await this.client.messages.create({
-        ...params,
-        stream: true,
-      } as Anthropic.MessageCreateParamsStreaming,
+      anthropicStream = await this.client.messages.create(
+        {
+          ...params,
+          stream: true,
+        } as Anthropic.MessageCreateParamsStreaming,
         { signal: options.abortSignal },
       )
     } catch (error) {

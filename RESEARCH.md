@@ -93,16 +93,16 @@ This was discovered by intercepting Claude Code's request via an HTTP proxy, the
 
 These are the exact headers Claude Code sends, in order of discovery importance:
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `authorization` | `Bearer sk-ant-oat01-...` | OAuth authentication |
-| `anthropic-beta` | See below | Feature flags (order matters) |
-| `anthropic-version` | `2023-06-01` | API version |
-| `user-agent` | `claude-cli/2.1.81 (external, sdk-cli)` | Client identification |
-| `x-app` | `cli` | Application type |
-| `anthropic-dangerous-direct-browser-access` | `true` | Bypass browser restriction |
-| `x-stainless-package-version` | `0.74.0` | SDK version (Claude Code bundles 0.74.0) |
-| `content-type` | `application/json` | Standard |
+| Header                                      | Value                                   | Purpose                                  |
+| ------------------------------------------- | --------------------------------------- | ---------------------------------------- |
+| `authorization`                             | `Bearer sk-ant-oat01-...`               | OAuth authentication                     |
+| `anthropic-beta`                            | See below                               | Feature flags (order matters)            |
+| `anthropic-version`                         | `2023-06-01`                            | API version                              |
+| `user-agent`                                | `claude-cli/2.1.81 (external, sdk-cli)` | Client identification                    |
+| `x-app`                                     | `cli`                                   | Application type                         |
+| `anthropic-dangerous-direct-browser-access` | `true`                                  | Bypass browser restriction               |
+| `x-stainless-package-version`               | `0.74.0`                                | SDK version (Claude Code bundles 0.74.0) |
+| `content-type`                              | `application/json`                      | Standard                                 |
 
 ### Beta Flags
 
@@ -112,23 +112,23 @@ Claude Code sends these beta flags (order matches what we intercepted):
 claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24
 ```
 
-| Flag | Purpose |
-|------|---------|
-| `claude-code-20250219` | Claude Code feature gate |
-| `oauth-2025-04-20` | Enables OAuth Bearer token authentication |
-| `interleaved-thinking-2025-05-14` | Extended thinking / reasoning |
-| `context-management-2025-06-27` | Context window management |
-| `prompt-caching-scope-2026-01-05` | Prompt caching with scope/TTL |
-| `effort-2025-11-24` | Output effort control (`output_config.effort`) |
+| Flag                              | Purpose                                        |
+| --------------------------------- | ---------------------------------------------- |
+| `claude-code-20250219`            | Claude Code feature gate                       |
+| `oauth-2025-04-20`                | Enables OAuth Bearer token authentication      |
+| `interleaved-thinking-2025-05-14` | Extended thinking / reasoning                  |
+| `context-management-2025-06-27`   | Context window management                      |
+| `prompt-caching-scope-2026-01-05` | Prompt caching with scope/TTL                  |
+| `effort-2025-11-24`               | Output effort control (`output_config.effort`) |
 
 The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model access — the billing system block is also required.
 
 ### Headers That Don't Need to Match
 
-| Header | Claude Code | Ours | Impact |
-|--------|-------------|------|--------|
+| Header                        | Claude Code                 | Ours             | Impact                       |
+| ----------------------------- | --------------------------- | ---------------- | ---------------------------- |
 | `x-stainless-runtime-version` | Node version of Claude Code | Our Node version | None — determined by runtime |
-| `accept-language` | `*` | Not sent | Negligible |
+| `accept-language`             | `*`                         | Not sent         | Negligible                   |
 
 ---
 
@@ -136,14 +136,14 @@ The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model acces
 
 ### Required Fields for OAuth (Sonnet/Opus Access)
 
-| Field | Value | Required? |
-|-------|-------|-----------|
-| `system[0]` | Billing block | **Yes** — without it, 400 on non-Haiku |
-| `system[1]` | `"You are a Claude agent, built on Anthropic's Claude Agent SDK."` | Sent by Claude Code always |
-| `metadata` | `{ "user_id": "{\"device_id\":\"<sha256>\"}" }` | Sent by Claude Code always |
-| `output_config` | `{ "effort": "medium" }` | Sonnet/Opus only (Haiku rejects it) |
-| `temperature` | `1` | Default for Sonnet/Opus |
-| `stream` | `true` | Claude Code always streams |
+| Field           | Value                                                              | Required?                              |
+| --------------- | ------------------------------------------------------------------ | -------------------------------------- |
+| `system[0]`     | Billing block                                                      | **Yes** — without it, 400 on non-Haiku |
+| `system[1]`     | `"You are a Claude agent, built on Anthropic's Claude Agent SDK."` | Sent by Claude Code always             |
+| `metadata`      | `{ "user_id": "{\"device_id\":\"<sha256>\"}" }`                    | Sent by Claude Code always             |
+| `output_config` | `{ "effort": "medium" }`                                           | Sonnet/Opus only (Haiku rejects it)    |
+| `temperature`   | `1`                                                                | Default for Sonnet/Opus                |
+| `stream`        | `true`                                                             | Claude Code always streams             |
 
 ### Thinking (Extended Reasoning)
 
@@ -191,7 +191,7 @@ const retryAfter = parseInt(resp.headers.get("retry-after") ?? "0")
 const isSubscriptionLimit = unifiedStatus === "over_limit" || retryAfter > 120
 
 if (isSubscriptionLimit) {
-  const body = await resp.text()  // consume stream to avoid dangling
+  const body = await resp.text() // consume stream to avoid dangling
   const headers = new Headers(resp.headers)
   headers.set("x-should-retry", "false")
   return new Response(body, { status: 429, headers })
@@ -208,34 +208,35 @@ if (isSubscriptionLimit) {
 
 Claude Code uses PascalCase tool names. OpenCode uses snake_case. Our provider maps bidirectionally:
 
-| OpenCode | Claude Code | Notes |
-|----------|-------------|-------|
-| `task` | `Agent` | Different name entirely |
-| `question` | `AskUserQuestion` | Different name entirely |
-| `plan_enter` | `EnterPlanMode` | Different name entirely |
-| `plan_exit` | `ExitPlanMode` | Different name entirely |
-| `bash` | `Bash` | Case change |
-| `read` | `Read` | Case change |
-| `write` | `Write` | Case change |
-| `edit` | `Edit` | Case change |
-| `glob` | `Glob` | Case change |
-| `grep` | `Grep` | Case change |
-| `webfetch` | `WebFetch` | Case change |
-| `todowrite` | `TodoWrite` | Case change |
-| `skill` | `Skill` | Case change |
+| OpenCode     | Claude Code       | Notes                   |
+| ------------ | ----------------- | ----------------------- |
+| `task`       | `Agent`           | Different name entirely |
+| `question`   | `AskUserQuestion` | Different name entirely |
+| `plan_enter` | `EnterPlanMode`   | Different name entirely |
+| `plan_exit`  | `ExitPlanMode`    | Different name entirely |
+| `bash`       | `Bash`            | Case change             |
+| `read`       | `Read`            | Case change             |
+| `write`      | `Write`           | Case change             |
+| `edit`       | `Edit`            | Case change             |
+| `glob`       | `Glob`            | Case change             |
+| `grep`       | `Grep`            | Case change             |
+| `webfetch`   | `WebFetch`        | Case change             |
+| `todowrite`  | `TodoWrite`       | Case change             |
+| `skill`      | `Skill`           | Case change             |
 
 ### MCP Tool Mapping
 
 MCP tools use different prefix formats:
 
-| OpenCode | Claude Code |
-|----------|-------------|
-| `context7_query-docs` | `mcp__context7__query-docs` |
+| OpenCode                   | Claude Code                      |
+| -------------------------- | -------------------------------- |
+| `context7_query-docs`      | `mcp__context7__query-docs`      |
 | `playwright_browser_close` | `mcp__playwright__browser_close` |
 
 Pattern: `<server>_<tool>` → `mcp__<server>__<tool>`
 
 MCP server names are auto-detected from OpenCode config files:
+
 - `.opencode/opencode.json` (project)
 - `~/.config/opencode/opencode.json` (global)
 - `~/.config/opencode/opencode.jsonc` (global, JSONC)
@@ -243,6 +244,7 @@ MCP server names are auto-detected from OpenCode config files:
 ### Tool Name References in System Prompt
 
 OpenCode's system prompt references tool names that we also rewrite:
+
 - `"use the Task tool"` → `"use the Agent tool"`
 - `"the question to ask"` → `"the AskUserQuestion to ask"`
 
@@ -274,6 +276,7 @@ system[2]: OpenCode prompt (rewritten)        (from OpenCode, tool names + ident
 ```
 
 Rewrites applied to system[2]:
+
 - Opening identity replaced: `"You are OpenCode, the best coding agent..."` → `"You are an interactive agent that helps users with software engineering tasks."`
 - Tool names rewritten to match Claude Code names
 
@@ -281,9 +284,10 @@ Rewrites applied to system[2]:
 
 `<system-reminder>` tags are **not part of the system prompt**. They are injected into **user messages and tool results** during the conversation. Claude Code's system prompt instructs the model about them:
 
-> *"Tool results and user messages may include `<system-reminder>` or other tags. Tags contain information from the system. They bear no direct relation to the specific tool results or user messages in which they appear."*
+> _"Tool results and user messages may include `<system-reminder>` or other tags. Tags contain information from the system. They bear no direct relation to the specific tool results or user messages in which they appear."_
 
 Both Claude Code and OpenCode use `<system-reminder>` for:
+
 - Mode changes (plan → build)
 - Permission reminders
 - Context injections
@@ -372,33 +376,34 @@ grep -oP 'output_config.{0,100}' cli.js
 We used `ANTHROPIC_BASE_URL` to redirect Claude Code through a local HTTP proxy:
 
 ```typescript
-import * as http from "http";
+import * as http from "http"
 
 const server = http.createServer(async (req, res) => {
-  let body = "";
-  req.on("data", (d) => body += d);
+  let body = ""
+  req.on("data", (d) => (body += d))
   req.on("end", async () => {
     // Log headers and body
-    console.log("Headers:", JSON.stringify(req.headers));
-    console.log("Body:", body);
+    console.log("Headers:", JSON.stringify(req.headers))
+    console.log("Body:", body)
 
     // Forward to real API
     const resp = await fetch("https://api.anthropic.com" + req.url, {
       method: req.method,
       headers: Object.fromEntries(
-        Object.entries(req.headers).filter(([k]) => k !== "host" && k !== "connection")
+        Object.entries(req.headers).filter(([k]) => k !== "host" && k !== "connection"),
       ),
       body,
-    });
-    const respText = await resp.text();
-    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()));
-    res.end(respText);
-  });
-});
-server.listen(19827);
+    })
+    const respText = await resp.text()
+    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()))
+    res.end(respText)
+  })
+})
+server.listen(19827)
 ```
 
 Then run:
+
 ```bash
 ANTHROPIC_BASE_URL=http://localhost:19827 echo "Say OK" | claude --model opus -p
 ```
@@ -406,6 +411,7 @@ ANTHROPIC_BASE_URL=http://localhost:19827 echo "Say OK" | claude --model opus -p
 ### Intercepting OpenCode
 
 Same proxy approach:
+
 ```bash
 ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-opus-4-6" "Say OK"
 ```
@@ -419,13 +425,13 @@ const client = new Anthropic({
   apiKey: null,
   authToken: creds.accessToken,
   fetch: async (url, init) => {
-    const h = new Headers(init?.headers);
-    console.log("URL:", url);
-    h.forEach((v, k) => console.log(k + ":", v));
-    console.log("Body:", init?.body);
-    return globalThis.fetch(url, init);
+    const h = new Headers(init?.headers)
+    console.log("URL:", url)
+    h.forEach((v, k) => console.log(k + ":", v))
+    console.log("Body:", init?.body)
+    return globalThis.fetch(url, init)
   },
-});
+})
 ```
 
 ### Binary Search for Required Fields
@@ -441,7 +447,7 @@ To find which body fields were required for OAuth subscription access, we:
 # Test order:
 # original body → 200 ✓
 # remove system → 400 ✗
-# keep system, simple messages → 400 ✗  
+# keep system, simple messages → 400 ✗
 # keep system[0] only → 200 ✓   ← billing block is the key
 # keep system[1] only → 400 ✗
 ```
@@ -491,15 +497,15 @@ x-app: cli
 }
 ```
 
-| Field | Meaning |
-|-------|---------|
-| `five_hour` | Current session usage (5-hour rolling window) |
-| `seven_day` | Weekly usage across all models |
-| `seven_day_sonnet` | Weekly usage for Sonnet models only |
-| `seven_day_opus` | Weekly usage for Opus models only |
-| `extra_usage` | Pay-as-you-go overage (if enabled) |
-| `utilization` | Percentage used (0–100) |
-| `resets_at` | ISO 8601 timestamp when the window resets |
+| Field              | Meaning                                       |
+| ------------------ | --------------------------------------------- |
+| `five_hour`        | Current session usage (5-hour rolling window) |
+| `seven_day`        | Weekly usage across all models                |
+| `seven_day_sonnet` | Weekly usage for Sonnet models only           |
+| `seven_day_opus`   | Weekly usage for Opus models only             |
+| `extra_usage`      | Pay-as-you-go overage (if enabled)            |
+| `utilization`      | Percentage used (0–100)                       |
+| `resets_at`        | ISO 8601 timestamp when the window resets     |
 
 ### Discovery Method
 
@@ -523,7 +529,7 @@ Also found the `ratelimit-unified-*` response headers that Claude Code reads fro
 ```bash
 grep -oP 'anthropic-ratelimit-unified-[a-z0-9-]+' cli.js | sort -u
 # anthropic-ratelimit-unified-5h-utilization
-# anthropic-ratelimit-unified-7d-utilization  
+# anthropic-ratelimit-unified-7d-utilization
 # anthropic-ratelimit-unified-{window}-reset
 # anthropic-ratelimit-unified-status
 ```
@@ -543,12 +549,15 @@ Anthropic caches prompt content when `cache_control` is set on system blocks, to
 Claude Code sets `cache_control` on:
 
 1. **`system[2]`** (main instructions) — cached globally with 1-hour TTL:
+
    ```json
    { "type": "ephemeral", "ttl": "1h", "scope": "global" }
    ```
+
    The `scope: "global"` means the cache is shared across all sessions for the same user, not just within a session.
 
 2. **Last user message content** — cached per-session with 1-hour TTL:
+
    ```json
    { "type": "ephemeral", "ttl": "1h" }
    ```
@@ -574,6 +583,7 @@ With small isolated test prompts (<2K tokens), caching is not triggered.
 ### `inference_geo` Field
 
 The `inference_geo` field in responses indicates routing:
+
 - `""` (empty string) — Claude Code's normal routing
 - `"global"` — standard API key routing
 - `"not_available"` — overflow infrastructure (e.g. at 100% session utilization)
@@ -583,6 +593,7 @@ Both `"global"` and `"not_available"` support caching. `"not_available"` only di
 ### Cache Invalidation
 
 The system prompt is stable within a session — the dynamic fields are:
+
 - `Today's date` — uses `toDateString()` (no time), changes at midnight
 - `Working directory` — stable per project
 - `Model name/ID` — stable per model selection
@@ -596,6 +607,7 @@ The stream `finish` event was missing `cachedInputTokens` because `stream.ts` on
 ### Fixtures
 
 Real OpenCode request data captured and stored for testing:
+
 - `src/fixtures/opencode-system.txt` — actual system prompt (12.8K chars)
 - `src/fixtures/opencode-tools.json` — actual 22 tool definitions (66K chars)
 
@@ -605,11 +617,11 @@ Real OpenCode request data captured and stored for testing:
 
 ### Tested limits per model (Max subscription, Extra usage disabled)
 
-| Model | Without `context-1m` | With `context-1m` | Notes |
-|-------|---------------------|-------------------|-------|
-| **Opus 4.6** | **~615K tokens** (1M chars) ✓ | Not needed | Native 1M context without any beta |
-| **Sonnet 4.6** | **~120K tokens** (195K chars) ✓ | ✗ `"Extra usage is required"` | Fails at ~200K chars. `context-1m` doesn't help — requires Extra usage |
-| **Haiku 4.5** | **~200K tokens** (300K chars) ✓ | ✗ `"long context beta not available for this subscription"` | Hard 200K limit. `context-1m` not supported for Haiku |
+| Model          | Without `context-1m`            | With `context-1m`                                           | Notes                                                                  |
+| -------------- | ------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Opus 4.6**   | **~615K tokens** (1M chars) ✓   | Not needed                                                  | Native 1M context without any beta                                     |
+| **Sonnet 4.6** | **~120K tokens** (195K chars) ✓ | ✗ `"Extra usage is required"`                               | Fails at ~200K chars. `context-1m` doesn't help — requires Extra usage |
+| **Haiku 4.5**  | **~200K tokens** (300K chars) ✓ | ✗ `"long context beta not available for this subscription"` | Hard 200K limit. `context-1m` not supported for Haiku                  |
 
 ### Key findings
 
@@ -620,22 +632,22 @@ Real OpenCode request data captured and stored for testing:
 
 ### Error messages
 
-| Error | Meaning | Resolution |
-|-------|---------|------------|
-| `"Extra usage is required for long context requests"` | Sonnet context > ~120K tokens | Enable Extra usage at `claude.ai/settings` or reduce context |
-| `"prompt is too long: N tokens > 200000 maximum"` | Haiku context > 200K tokens | Switch to Opus/Sonnet or reduce context |
-| `"The long context beta is not yet available for this subscription"` | `context-1m` beta not supported for this model/tier | Remove `context-1m` beta, use Opus for large context |
+| Error                                                                | Meaning                                             | Resolution                                                   |
+| -------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| `"Extra usage is required for long context requests"`                | Sonnet context > ~120K tokens                       | Enable Extra usage at `claude.ai/settings` or reduce context |
+| `"prompt is too long: N tokens > 200000 maximum"`                    | Haiku context > 200K tokens                         | Switch to Opus/Sonnet or reduce context                      |
+| `"The long context beta is not yet available for this subscription"` | `context-1m` beta not supported for this model/tier | Remove `context-1m` beta, use Opus for large context         |
 
 ### Actual token counts (from testing)
 
 The char-to-token ratio is approximately **1.63 chars per token** (not the typical 4:1) for repetitive English text:
 
 | Input chars | Actual tokens | Ratio |
-|-------------|---------------|-------|
-| 200K | 123,087 | 1.63 |
-| 400K | 246,165 | 1.63 |
-| 800K | 492,317 | 1.63 |
-| 1.6M | 615,396 | 2.60 |
+| ----------- | ------------- | ----- |
+| 200K        | 123,087       | 1.63  |
+| 400K        | 246,165       | 1.63  |
+| 800K        | 492,317       | 1.63  |
+| 1.6M        | 615,396       | 2.60  |
 
 ---
 
