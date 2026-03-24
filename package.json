@@ -1,6 +1,6 @@
 {
   "name": "@xtruder/opencode-claude-max-plugin",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "OpenCode plugin for Claude Max/Pro subscription via @anthropic-ai/sdk - uses Claude Code OAuth credentials",
   "keywords": [
     "ai-sdk",
