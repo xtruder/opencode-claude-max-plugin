@@ -16,7 +16,7 @@ describe("createAnthropicSDK", () => {
   test("creates a provider with API key", () => {
     const provider = createAnthropicSDK({ apiKey: "sk-ant-test" })
     const model = provider.languageModel("claude-haiku-4-5-20251001")
-    expect(model.specificationVersion).toBe("v2")
+    expect(model.specificationVersion).toBe("v3")
     expect(model.modelId).toBe("claude-haiku-4-5-20251001")
   })
 
@@ -48,7 +48,7 @@ describe("createAnthropicSDK", () => {
     try {
       const provider = createAnthropicSDK({ credentialsPath: credPath })
       const m = provider.languageModel("claude-haiku-4-5-20251001")
-      expect(m.specificationVersion).toBe("v2")
+      expect(m.specificationVersion).toBe("v3")
       expect(m.modelId).toBe("claude-haiku-4-5-20251001")
 
       // Call with fake OAuth token — should get 401 (NOT "missing auth"),
