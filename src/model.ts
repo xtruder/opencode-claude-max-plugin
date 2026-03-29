@@ -500,6 +500,30 @@ export class AnthropicSDKModel implements LanguageModelV2 {
         { signal: options.abortSignal },
       )
     } catch (error) {
+      // Anthropic rejects assistant message prefill on OAuth-routed requests.
+      // This happens in OpenCode's agentic loop when it re-sends the previous
+      // assistant response. Swallow this specific error silently — the loop
+      // will exit via its own error/stop handling.
+      if (
+        error instanceof APIError &&
+        error.status === 400 &&
+        error.message?.includes("must end with a user message")
+      ) {
+        return {
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings })
+              controller.enqueue({
+                type: "finish",
+                finishReason: "stop" as LanguageModelV2FinishReason,
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              })
+              controller.close()
+            },
+          }),
+          request: { body: params },
+        }
+      }
       handleApiError(error)
     }
 
