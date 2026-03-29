@@ -23,13 +23,28 @@ export function convertPrompt(prompt: LanguageModelV2Prompt): ConvertedPrompt {
       case "user":
         messages.push(convertUserMessage(message))
         break
-      case "assistant":
-        messages.push(convertAssistantMessage(message))
+      case "assistant": {
+        const converted = convertAssistantMessage(message)
+        // Skip assistant messages with empty content — can happen when
+        // reasoning blocks are dropped (missing signature) and there's
+        // no text or tool_use. An empty assistant message at the end
+        // causes "conversation must end with a user message" errors.
+        const content = converted.content
+        if (Array.isArray(content) && content.length === 0) break
+        messages.push(converted)
         break
+      }
       case "tool":
         messages.push(convertToolMessage(message))
         break
     }
+  }
+
+  // Anthropic requires the conversation to end with a user message.
+  // If the last message is an assistant message (e.g. after filtering),
+  // remove trailing assistant messages to avoid a 400 error.
+  while (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+    messages.pop()
   }
 
   return {
