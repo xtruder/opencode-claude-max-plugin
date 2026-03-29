@@ -408,6 +408,94 @@ describe("thinking", () => {
   })
 })
 
+// ─── Reasoning effort ────────────────────────────────────────────────────────
+
+describe("reasoning effort", () => {
+  if (skipUnless(isOAuth, "effort tests require OAuth credentials")) return
+
+  const getEffortModel = () => provider.languageModel("claude-sonnet-4-6")
+
+  test("effort 'low' produces a response", async () => {
+    const effortModel = getEffortModel()
+    const result = await effortModel.doGenerate({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "What is 2 + 2? Reply with just the number." }],
+        },
+      ],
+      maxOutputTokens: 100,
+      providerOptions: {
+        "anthropic-sdk": { effort: "low" },
+      },
+    } as any)
+
+    const textContent = result.content.find((c) => c.type === "text")
+    expect(textContent).not.toBeUndefined()
+    expect((textContent as any).text).toContain("4")
+    expect(result.finishReason).toBe("stop")
+  })
+
+  test("effort 'high' produces a response", async () => {
+    const effortModel = getEffortModel()
+    const result = await effortModel.doGenerate({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "What is 17 * 23? Reply with just the number." }],
+        },
+      ],
+      maxOutputTokens: 200,
+      providerOptions: {
+        "anthropic-sdk": { effort: "high" },
+      },
+    } as any)
+
+    const textContent = result.content.find((c) => c.type === "text")
+    expect(textContent).not.toBeUndefined()
+    expect((textContent as any).text).toContain("391")
+    expect(result.finishReason).toBe("stop")
+  }, 15000)
+
+  test("effort passed via 'anthropic' key also works", async () => {
+    const effortModel = getEffortModel()
+    const result = await effortModel.doGenerate({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "What is 5 + 3? Reply with just the number." }],
+        },
+      ],
+      maxOutputTokens: 100,
+      providerOptions: {
+        anthropic: { effort: "low" },
+      },
+    } as any)
+
+    const textContent = result.content.find((c) => c.type === "text")
+    expect(textContent).not.toBeUndefined()
+    expect((textContent as any).text).toContain("8")
+  })
+
+  test("effort defaults to medium when not specified", async () => {
+    const effortModel = getEffortModel()
+    // No providerOptions — should default to medium and work fine
+    const result = await effortModel.doGenerate({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "What is 1 + 1? Reply with just the number." }],
+        },
+      ],
+      maxOutputTokens: 100,
+    } as any)
+
+    const textContent = result.content.find((c) => c.type === "text")
+    expect(textContent).not.toBeUndefined()
+    expect((textContent as any).text).toContain("2")
+  })
+})
+
 // ─── Prompt caching ──────────────────────────────────────────────────────────
 
 async function streamUsage(result: { stream: AsyncIterable<any> }) {

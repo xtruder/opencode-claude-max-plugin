@@ -71,6 +71,12 @@ const PLUGIN_MODELS = {
       input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
       output: ["text"] as Array<"text">,
     },
+    options: { effort: "medium" },
+    variants: {
+      low: { effort: "low" },
+      medium: { effort: "medium" },
+      high: { effort: "high" },
+    },
   },
   "claude-opus-4-6": {
     name: "Claude Opus 4.6",
@@ -83,6 +89,12 @@ const PLUGIN_MODELS = {
     modalities: {
       input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
       output: ["text"] as Array<"text">,
+    },
+    options: { effort: "medium" },
+    variants: {
+      low: { effort: "low" },
+      medium: { effort: "medium" },
+      high: { effort: "high" },
     },
   },
 }

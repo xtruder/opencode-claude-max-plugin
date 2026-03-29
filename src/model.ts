@@ -292,7 +292,13 @@ export class AnthropicSDKModel implements LanguageModelV2 {
         if (options.temperature == null) {
           params.temperature = 1
         }
-        params.output_config = { effort: "medium" }
+        // Read effort from providerOptions (set by OpenCode variants or user config).
+        // providerOptions is keyed by providerID ("anthropic-sdk") since this plugin
+        // isn't in OpenCode's sdkKey map; also check "anthropic" for direct usage.
+        const providerOpts = (options.providerOptions?.["anthropic-sdk"] ??
+          options.providerOptions?.anthropic) as Record<string, any> | undefined
+        const effort = providerOpts?.effort ?? "medium"
+        params.output_config = { effort }
       }
     } else if (system) {
       // API key mode — add plain ephemeral cache_control matching Claude Code
