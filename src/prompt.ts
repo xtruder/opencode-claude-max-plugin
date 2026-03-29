@@ -40,13 +40,6 @@ export function convertPrompt(prompt: LanguageModelV2Prompt): ConvertedPrompt {
     }
   }
 
-  // Anthropic requires the conversation to end with a user message.
-  // If the last message is an assistant message (e.g. after filtering),
-  // remove trailing assistant messages to avoid a 400 error.
-  while (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
-    messages.pop()
-  }
-
   return {
     system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
     messages,
