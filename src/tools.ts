@@ -1,7 +1,7 @@
 import type {
-  LanguageModelV2FunctionTool,
-  LanguageModelV2ProviderDefinedTool,
-  LanguageModelV2ToolChoice,
+  LanguageModelV3FunctionTool,
+  LanguageModelV3ProviderTool,
+  LanguageModelV3ToolChoice,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { toClaudeToolName } from "./tool-names.ts"
@@ -32,12 +32,12 @@ function cleanSchema(schema: Record<string, any>): Record<string, any> {
 }
 
 export function convertTools(
-  tools: Array<LanguageModelV2FunctionTool | LanguageModelV2ProviderDefinedTool> | undefined,
+  tools: Array<LanguageModelV3FunctionTool | LanguageModelV3ProviderTool> | undefined,
 ): AnthropicTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
 
   return tools
-    .filter((t): t is LanguageModelV2FunctionTool => t.type === "function")
+    .filter((t): t is LanguageModelV3FunctionTool => t.type === "function")
     .map((tool) => ({
       name: toClaudeToolName(tool.name),
       description: tool.description ?? "",
@@ -48,7 +48,7 @@ export function convertTools(
 }
 
 export function convertToolChoice(
-  toolChoice: LanguageModelV2ToolChoice | undefined,
+  toolChoice: LanguageModelV3ToolChoice | undefined,
 ): AnthropicToolChoice | undefined {
   if (!toolChoice) return undefined
 

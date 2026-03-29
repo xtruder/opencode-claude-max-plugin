@@ -1,4 +1,4 @@
-import type { LanguageModelV2Prompt, LanguageModelV2Message } from "@ai-sdk/provider"
+import type { LanguageModelV3Prompt, LanguageModelV3Message } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { toClaudeToolName } from "./tool-names.ts"
 
@@ -11,7 +11,7 @@ export interface ConvertedPrompt {
   messages: AnthropicMessage[]
 }
 
-export function convertPrompt(prompt: LanguageModelV2Prompt): ConvertedPrompt {
+export function convertPrompt(prompt: LanguageModelV3Prompt): ConvertedPrompt {
   const systemParts: string[] = []
   const messages: AnthropicMessage[] = []
 
@@ -47,7 +47,7 @@ export function convertPrompt(prompt: LanguageModelV2Prompt): ConvertedPrompt {
 }
 
 function convertUserMessage(
-  message: Extract<LanguageModelV2Message, { role: "user" }>,
+  message: Extract<LanguageModelV3Message, { role: "user" }>,
 ): AnthropicMessage {
   const content: AnthropicContentBlock[] = []
 
@@ -89,7 +89,7 @@ function convertUserMessage(
 }
 
 function convertAssistantMessage(
-  message: Extract<LanguageModelV2Message, { role: "assistant" }>,
+  message: Extract<LanguageModelV3Message, { role: "assistant" }>,
 ): AnthropicMessage {
   const content: AnthropicContentBlock[] = []
 
@@ -142,18 +142,19 @@ function convertAssistantMessage(
 }
 
 function convertToolMessage(
-  message: Extract<LanguageModelV2Message, { role: "tool" }>,
+  message: Extract<LanguageModelV3Message, { role: "tool" }>,
 ): AnthropicMessage {
   const content: AnthropicContentBlock[] = []
 
   for (const part of message.content) {
-    const resultContent = formatToolResultContent(part.output)
+    if (part.type !== "tool-result") continue
+    const output = part.output as { type: string; value: any }
+    const resultContent = formatToolResultContent(output)
     content.push({
       type: "tool_result",
       tool_use_id: part.toolCallId,
       content: resultContent,
-      is_error:
-        part.output.type === "error-text" || part.output.type === "error-json" ? true : undefined,
+      is_error: output.type === "error-text" || output.type === "error-json" ? true : undefined,
     } as any)
   }
 

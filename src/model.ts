@@ -1,10 +1,12 @@
 import type {
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2Content,
-  LanguageModelV2FinishReason,
-  LanguageModelV2StreamPart,
-  LanguageModelV2CallWarning,
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3StreamPart,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3StreamResult,
+  SharedV3Warning,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { convertPrompt } from "./prompt.ts"
@@ -16,8 +18,8 @@ import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.ts"
 import { randomBytes, createHash } from "node:crypto"
 import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 
-type DoGenerateResult = Awaited<ReturnType<LanguageModelV2["doGenerate"]>>
-type DoStreamResult = Awaited<ReturnType<LanguageModelV2["doStream"]>>
+type DoGenerateResult = LanguageModelV3GenerateResult
+type DoStreamResult = LanguageModelV3StreamResult
 
 /**
  * Handle Anthropic API errors with clear messages.
@@ -67,19 +69,21 @@ function handleApiError(error: unknown): never {
   throw error
 }
 
-function mapFinishReason(stopReason: string | null | undefined): LanguageModelV2FinishReason {
-  switch (stopReason) {
-    case "end_turn":
-      return "stop"
-    case "stop_sequence":
-      return "stop"
-    case "max_tokens":
-      return "length"
-    case "tool_use":
-      return "tool-calls"
-    default:
-      return "unknown"
-  }
+function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
+  const unified = (() => {
+    switch (stopReason) {
+      case "end_turn":
+      case "stop_sequence":
+        return "stop" as const
+      case "max_tokens":
+        return "length" as const
+      case "tool_use":
+        return "tool-calls" as const
+      default:
+        return "other" as const
+    }
+  })()
+  return { unified, raw: stopReason ?? undefined }
 }
 
 /**
@@ -117,7 +121,7 @@ function buildMetadata(): { user_id: string } {
  * Check if the prompt is a /usage slash command.
  * Returns true when the last user message is just "/usage".
  */
-function isUsageCommand(prompt: LanguageModelV2CallOptions["prompt"]): boolean {
+function isUsageCommand(prompt: LanguageModelV3CallOptions["prompt"]): boolean {
   for (let i = prompt.length - 1; i >= 0; i--) {
     const msg = prompt[i]
     if (msg.role !== "user") continue
@@ -199,8 +203,8 @@ async function handleUsageCommand(): Promise<never> {
   throw new Error("No usage data available. Send a message first, then try /usage again.")
 }
 
-export class AnthropicSDKModel implements LanguageModelV2 {
-  readonly specificationVersion = "v2" as const
+export class AnthropicSDKModel implements LanguageModelV3 {
+  readonly specificationVersion = "v3" as const
   readonly provider: string
   readonly modelId: string
   readonly supportedUrls: Record<string, RegExp[]> = {}
@@ -215,19 +219,19 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     this.provider = providerName
   }
 
-  private buildParams(options: LanguageModelV2CallOptions) {
+  private buildParams(options: LanguageModelV3CallOptions) {
     const { system, messages } = convertPrompt(options.prompt)
-    const warnings: LanguageModelV2CallWarning[] = []
+    const warnings: SharedV3Warning[] = []
 
     // Handle unsupported settings
     if (options.presencePenalty != null) {
-      warnings.push({ type: "unsupported-setting", setting: "presencePenalty" as any })
+      warnings.push({ type: "compatibility", feature: "presencePenalty" })
     }
     if (options.frequencyPenalty != null) {
-      warnings.push({ type: "unsupported-setting", setting: "frequencyPenalty" as any })
+      warnings.push({ type: "compatibility", feature: "frequencyPenalty" })
     }
     if (options.seed != null) {
-      warnings.push({ type: "unsupported-setting", setting: "seed" as any })
+      warnings.push({ type: "compatibility", feature: "seed" })
     }
 
     const tools = options.toolChoice?.type === "none" ? undefined : convertTools(options.tools)
@@ -402,7 +406,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     return { params, warnings }
   }
 
-  async doGenerate(options: LanguageModelV2CallOptions): Promise<DoGenerateResult> {
+  async doGenerate(options: LanguageModelV3CallOptions): Promise<DoGenerateResult> {
     if (isUsageCommand(options.prompt)) await handleUsageCommand()
     const { params, warnings } = this.buildParams(options)
 
@@ -425,7 +429,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       handleApiError(error)
     }
 
-    const content: LanguageModelV2Content[] = []
+    const content: LanguageModelV3Content[] = []
 
     for (const block of response.content) {
       switch (block.type) {
@@ -463,14 +467,17 @@ export class AnthropicSDKModel implements LanguageModelV2 {
       content,
       finishReason: mapFinishReason(response.stop_reason),
       usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        totalTokens:
-          response.usage.input_tokens +
-          response.usage.output_tokens +
-          cacheReadTokens +
-          cacheCreateTokens,
-        cachedInputTokens: cacheReadTokens,
+        inputTokens: {
+          total: response.usage.input_tokens,
+          noCache: undefined,
+          cacheRead: cacheReadTokens,
+          cacheWrite: cacheCreateTokens,
+        },
+        outputTokens: {
+          total: response.usage.output_tokens,
+          text: undefined,
+          reasoning: undefined,
+        },
       },
       providerMetadata: {
         anthropic: {
@@ -486,7 +493,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
     }
   }
 
-  async doStream(options: LanguageModelV2CallOptions): Promise<DoStreamResult> {
+  async doStream(options: LanguageModelV3CallOptions): Promise<DoStreamResult> {
     if (isUsageCommand(options.prompt)) await handleUsageCommand()
     const { params, warnings } = this.buildParams(options)
 
@@ -510,13 +517,21 @@ export class AnthropicSDKModel implements LanguageModelV2 {
         error.message?.includes("must end with a user message")
       ) {
         return {
-          stream: new ReadableStream<LanguageModelV2StreamPart>({
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
             start(controller) {
               controller.enqueue({ type: "stream-start", warnings })
               controller.enqueue({
                 type: "finish",
-                finishReason: "stop" as LanguageModelV2FinishReason,
-                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                finishReason: { unified: "stop", raw: undefined },
+                usage: {
+                  inputTokens: {
+                    total: 0,
+                    noCache: undefined,
+                    cacheRead: undefined,
+                    cacheWrite: undefined,
+                  },
+                  outputTokens: { total: 0, text: undefined, reasoning: undefined },
+                },
               })
               controller.close()
             },
@@ -529,7 +544,7 @@ export class AnthropicSDKModel implements LanguageModelV2 {
 
     const stream = convertStream(anthropicStream as any, this.modelId)
 
-    const wrappedStream = new ReadableStream<LanguageModelV2StreamPart>({
+    const wrappedStream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {
         controller.enqueue({
           type: "stream-start",

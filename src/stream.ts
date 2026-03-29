@@ -1,4 +1,4 @@
-import type { LanguageModelV2StreamPart, LanguageModelV2FinishReason } from "@ai-sdk/provider"
+import type { LanguageModelV3StreamPart, LanguageModelV3FinishReason } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { toOpencodeToolName } from "./tool-names.ts"
 
@@ -20,32 +20,34 @@ function generateId(): string {
   return `block-${Date.now()}-${idCounter++}`
 }
 
-function mapFinishReason(stopReason: string | null | undefined): LanguageModelV2FinishReason {
-  switch (stopReason) {
-    case "end_turn":
-      return "stop"
-    case "stop_sequence":
-      return "stop"
-    case "max_tokens":
-      return "length"
-    case "tool_use":
-      return "tool-calls"
-    default:
-      return "unknown"
-  }
+function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
+  const unified = (() => {
+    switch (stopReason) {
+      case "end_turn":
+      case "stop_sequence":
+        return "stop" as const
+      case "max_tokens":
+        return "length" as const
+      case "tool_use":
+        return "tool-calls" as const
+      default:
+        return "other" as const
+    }
+  })()
+  return { unified, raw: stopReason ?? undefined }
 }
 
 export function convertStream(
   anthropicStream: AsyncIterable<MessageStreamEvent>,
   modelId: string,
-): ReadableStream<LanguageModelV2StreamPart> {
+): ReadableStream<LanguageModelV3StreamPart> {
   const blockStates = new Map<number, ContentBlockState>()
   let inputTokens: number | undefined
   let outputTokens: number | undefined
   let cachedInputTokens: number | undefined
   let cacheCreationTokens: number | undefined
 
-  return new ReadableStream<LanguageModelV2StreamPart>({
+  return new ReadableStream<LanguageModelV3StreamPart>({
     async start(controller) {
       try {
         for await (const event of anthropicStream) {
@@ -64,14 +66,17 @@ export function convertStream(
               type: "finish",
               finishReason,
               usage: {
-                inputTokens: inputTokens ?? 0,
-                outputTokens: outputTokens ?? 0,
-                totalTokens:
-                  (inputTokens ?? 0) +
-                  (outputTokens ?? 0) +
-                  (cachedInputTokens ?? 0) +
-                  (cacheCreationTokens ?? 0),
-                cachedInputTokens: cachedInputTokens,
+                inputTokens: {
+                  total: inputTokens ?? 0,
+                  noCache: undefined,
+                  cacheRead: cachedInputTokens ?? 0,
+                  cacheWrite: cacheCreationTokens ?? 0,
+                },
+                outputTokens: {
+                  total: outputTokens ?? 0,
+                  text: undefined,
+                  reasoning: undefined,
+                },
               },
               providerMetadata: {
                 anthropic: {
@@ -97,8 +102,8 @@ function processEvent(
   event: MessageStreamEvent,
   blockStates: Map<number, ContentBlockState>,
   modelId: string,
-): LanguageModelV2StreamPart[] {
-  const parts: LanguageModelV2StreamPart[] = []
+): LanguageModelV3StreamPart[] {
+  const parts: LanguageModelV3StreamPart[] = []
 
   switch (event.type) {
     case "message_start": {

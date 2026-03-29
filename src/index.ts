@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { AnthropicSDKModel } from "./model.ts"
 import { getCachedCredentials } from "./credentials.ts"
 import { cachedUsage } from "./usage-cache.ts"
-import type { LanguageModelV2 } from "@ai-sdk/provider"
+import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 
 /**
@@ -141,7 +141,7 @@ export interface AnthropicSDKProvider {
   /**
    * Get a language model by model ID.
    */
-  languageModel(modelId: string): LanguageModelV2
+  languageModel(modelId: string): LanguageModelV3
 }
 
 function resolveAuth(options: AnthropicSDKProviderOptions): {
@@ -291,7 +291,7 @@ export function createAnthropicSDK(
   })
 
   return {
-    languageModel(modelId: string): LanguageModelV2 {
+    languageModel(modelId: string): LanguageModelV3 {
       return new AnthropicSDKModel(modelId, client, name as string, auth.isOAuth)
     },
   }

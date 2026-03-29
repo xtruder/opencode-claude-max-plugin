@@ -37,7 +37,7 @@
     "@anthropic-ai/sdk": "0.74.0"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "2.0.1",
+    "@ai-sdk/provider": "3.0.8",
     "@ai-sdk/provider-utils": "3.0.2",
     "@opencode-ai/plugin": "^1.3.0",
     "ai": "5.0.124",
