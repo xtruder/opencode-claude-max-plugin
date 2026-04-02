@@ -178,15 +178,6 @@ function UsageSidebar(props: {
     }
   })
 
-  const sevenDaySonnet = createMemo(() => {
-    const d = props.usage()
-    if (!d?.seven_day_sonnet) return null
-    return {
-      ratio: clamp01(d.seven_day_sonnet.utilization / 100),
-      reset: d.seven_day_sonnet.resets_at,
-    }
-  })
-
   const hasData = createMemo(() => fiveHour() !== null || sevenDay() !== null)
 
   return (
@@ -196,7 +187,6 @@ function UsageSidebar(props: {
           const next = Math.max(1, this.width)
           setBarWidth((prev) => (prev === next ? prev : next))
         }}
-        paddingTop={1}
         width="100%"
         flexDirection="column"
       >
@@ -226,26 +216,6 @@ function UsageSidebar(props: {
         <Show when={sevenDay()}>
           {(data) => {
             const label = "7D "
-            const suffix = createMemo(() => ` ${pct(data().ratio)}`)
-            return (
-              <>
-                <text>
-                  <span style={{ fg: props.theme.textMuted }}>{label}</span>
-                  <span style={{ fg: barColor(data().ratio, props.theme) }}>
-                    [{bar(data().ratio, fillWidth(barWidth(), label, suffix()))}]
-                  </span>
-                  <span style={{ fg: props.theme.text }}>{suffix()}</span>
-                </text>
-                <Show when={data().reset}>
-                  <text fg={props.theme.textMuted}>{formatReset(data().reset)}</text>
-                </Show>
-              </>
-            )
-          }}
-        </Show>
-        <Show when={sevenDaySonnet()}>
-          {(data) => {
-            const label = "7D Sonnet "
             const suffix = createMemo(() => ` ${pct(data().ratio)}`)
             return (
               <>
