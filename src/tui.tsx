@@ -1,20 +1,20 @@
 // @ts-nocheck
 /** @jsxImportSource @opentui/solid */
+import { Show, createMemo, createSignal } from "solid-js"
 import type {
   TuiPlugin,
   TuiPluginApi,
   TuiPluginModule,
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui"
-import { createMemo, createSignal, Show } from "solid-js"
 import {
+  type UsageData,
+  bestUsageFromCache,
   fetchUsage,
   formatReset,
   readUsageCache,
-  writeUsageCache,
-  bestUsageFromCache,
   shouldFetchApi,
-  type UsageData,
+  writeUsageCache,
 } from "./usage.ts"
 
 const id = "anthropic-sdk-usage"

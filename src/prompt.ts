@@ -1,4 +1,4 @@
-import type { LanguageModelV3Prompt, LanguageModelV3Message } from "@ai-sdk/provider"
+import type { LanguageModelV3Message, LanguageModelV3Prompt } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { toClaudeToolName } from "./tool-names.ts"
 

@@ -7,22 +7,22 @@
  * Integration tests use the real Claude CLI and ~/.claude/.credentials.json —
  * they are skipped automatically if either is unavailable.
  */
-import { describe, test, expect, beforeEach, afterAll, spyOn } from "bun:test"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import * as child_process from "node:child_process"
+import {
+  type ClaudeOAuthCredentials,
+  clearCredentialCache,
+  getCachedCredentials,
+  getCredentialsPath,
+  isExpired,
+  readClaudeCredentials,
+  refreshIfNeeded,
+  refreshViaCli,
+} from "./credentials.ts"
+import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import * as child_process from "node:child_process"
-import {
-  readClaudeCredentials,
-  isExpired,
-  refreshViaCli,
-  refreshIfNeeded,
-  getCachedCredentials,
-  clearCredentialCache,
-  getCredentialsPath,
-  type ClaudeOAuthCredentials,
-} from "./credentials.ts"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

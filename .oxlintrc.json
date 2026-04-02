@@ -6,7 +6,15 @@
     "perf": "warn"
   },
   "rules": {
-    "no-await-in-loop": "off"
+    "no-await-in-loop": "off",
+    "sort-imports": [
+      "warn",
+      {
+        "ignoreDeclarationSort": false,
+        "ignoreMemberSort": false,
+        "memberSyntaxSortOrder": ["none", "all", "multiple", "single"]
+      }
+    ]
   },
   "ignorePatterns": ["build", "node_modules"]
 }

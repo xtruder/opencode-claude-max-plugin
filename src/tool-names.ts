@@ -4,9 +4,9 @@
  * Built-in tools: OpenCode uses snake_case, Claude Code uses PascalCase.
  * MCP tools: OpenCode uses `<server>_<tool>`, Claude Code uses `mcp__<server>__<tool>`.
  */
-import { readFileSync, existsSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
+import { join } from "node:path"
 
 /**
  * All known OpenCode built-in tool names → Claude Code equivalents.

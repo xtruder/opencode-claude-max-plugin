@@ -8,12 +8,12 @@
  * Tests that need OAuth credentials (thinking, caching) are skipped when
  * using an API key.
  */
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 // import { streamText, generateText, tool } from "ai"  // Requires ai@6 for V3 models
 // import { z } from "zod"
-import { readFileSync } from "node:fs"
 import { createAnthropicSDK } from "./index.ts"
 import { readClaudeCredentials } from "./credentials.ts"
+import { readFileSync } from "node:fs"
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 

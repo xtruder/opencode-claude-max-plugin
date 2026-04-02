@@ -9,17 +9,17 @@
  * so the TUI plugin (main process) can read data written by the server plugin (worker process).
  */
 import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  unlinkSync,
-  openSync,
   closeSync,
-  renameSync,
   constants as fsConstants,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
 } from "node:fs"
-import { join } from "node:path"
 import { homedir } from "node:os"
+import { join } from "node:path"
 import { readClaudeCredentials } from "./credentials.ts"
 
 // ─── Types ───────────────────────────────────────────────────────────

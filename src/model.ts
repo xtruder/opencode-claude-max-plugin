@@ -1,20 +1,20 @@
+import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3Content,
   LanguageModelV3FinishReason,
-  LanguageModelV3StreamPart,
   LanguageModelV3GenerateResult,
+  LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
   SharedV3Warning,
 } from "@ai-sdk/provider"
+import { convertToolChoice, convertTools } from "./tools.ts"
+import { createHash, randomBytes } from "node:crypto"
+import { rewriteToolNamesInText, toOpencodeToolName } from "./tool-names.ts"
 import type Anthropic from "@anthropic-ai/sdk"
 import { convertPrompt } from "./prompt.ts"
-import { convertTools, convertToolChoice } from "./tools.ts"
 import { convertStream } from "./stream.ts"
-import { toOpencodeToolName, rewriteToolNamesInText } from "./tool-names.ts"
-import { randomBytes, createHash } from "node:crypto"
-import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 
 type DoGenerateResult = LanguageModelV3GenerateResult
 type DoStreamResult = LanguageModelV3StreamResult

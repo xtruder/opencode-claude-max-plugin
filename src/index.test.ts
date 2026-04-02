@@ -3,12 +3,12 @@
  *
  * Run with: bun test src/index.test.ts
  */
-import { describe, test, expect } from "bun:test"
-import { writeFileSync, mkdirSync, rmSync } from "node:fs"
+import { describe, expect, test } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { clearCredentialCache } from "./credentials.ts"
+import { createAnthropicSDK } from "./index.ts"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { createAnthropicSDK } from "./index.ts"
-import { clearCredentialCache } from "./credentials.ts"
 
 // ─── createAnthropicSDK ─────────────────────────────────────────────────────
 

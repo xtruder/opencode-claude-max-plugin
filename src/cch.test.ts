@@ -6,8 +6,8 @@
  *
  * Run with: bun test src/cch.test.ts
  */
-import { describe, test, expect } from "bun:test"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
+import { describe, expect, test } from "bun:test"
 
 // ─── computeCch ─────────────────────────────────────────────────────────────
 

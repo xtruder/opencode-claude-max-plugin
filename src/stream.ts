@@ -1,4 +1,4 @@
-import type { LanguageModelV3StreamPart, LanguageModelV3FinishReason } from "@ai-sdk/provider"
+import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
 import { toOpencodeToolName } from "./tool-names.ts"
 

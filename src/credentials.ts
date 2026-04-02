@@ -1,7 +1,7 @@
-import { readFileSync, existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { execSync } from "node:child_process"
-import { join } from "node:path"
 import { homedir } from "node:os"
+import { join } from "node:path"
 
 export interface ClaudeOAuthCredentials {
   accessToken: string

@@ -1,10 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk"
-import { AnthropicSDKModel } from "./model.ts"
-import { getCachedCredentials } from "./credentials.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
+import Anthropic from "@anthropic-ai/sdk"
+import { AnthropicSDKModel } from "./model.ts"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
+import { getCachedCredentials } from "./credentials.ts"
 
 /**
  * Claude Code CLI version to impersonate.
