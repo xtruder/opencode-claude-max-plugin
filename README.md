@@ -71,6 +71,7 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 - MCP tool name remapping (`server_tool` → `mcp__server__tool`)
 - Extended thinking with signature passthrough for multi-turn conversations
 - Prompt caching (98% cache hit rate with full OpenCode tool set)
+- CCH request signing — computes xxHash64 body integrity hash to unlock features like fast mode
 - Subscription rate limit detection — fails fast with clear message instead of hanging
 - Long context auto-detection — adds `context-1m` beta header when request body is large
 - `/usage` slash command — shows current session and weekly utilization
