@@ -700,6 +700,90 @@ The mechanism was reverse-engineered from Claude Code's custom Bun binary. In th
 
 ---
 
+## OpenCode TUI Plugin System
+
+### Architecture
+
+OpenCode supports plugins with separate server-side and TUI entry points. A single npm package can provide both via `package.json` exports:
+
+```json
+{
+  "exports": {
+    "./server": { "import": "./build/server.js", "config": {} },
+    "./tui": { "import": "./src/tui.tsx", "config": { "sidebar": true } }
+  }
+}
+```
+
+- **Server plugins** (`./server`): Run in the main OpenCode process. Export `{ id, server }` where `server` is a `Plugin` function from `@opencode-ai/plugin`.
+- **TUI plugins** (`./tui`): Run in the TUI renderer (Bun + SolidJS). Export `{ id, tui }` where `tui` is a `TuiPlugin` function from `@opencode-ai/plugin/tui`. The `.tsx` source is loaded directly by Bun (no build step needed).
+
+### TUI Plugin API
+
+The TUI plugin receives an `api` object with:
+
+| API                         | Purpose                                    |
+| --------------------------- | ------------------------------------------ |
+| `api.command.register()`    | Register slash commands                    |
+| `api.slots.register()`      | Register sidebar/footer/title slot content |
+| `api.ui.dialog.replace()`   | Show a dialog with SolidJS content         |
+| `api.theme.current`         | Current theme colors                       |
+| `api.state.session`         | Session state (messages, etc.)             |
+| `api.event.on()`            | Subscribe to events (`session.idle`, etc.) |
+| `api.lifecycle.onDispose()` | Cleanup on plugin unload                   |
+| `api.kv`                    | Key-value storage                          |
+
+### Slot System
+
+Available slots for sidebar plugins:
+
+| Slot              | Mode            | Props                              |
+| ----------------- | --------------- | ---------------------------------- |
+| `sidebar_title`   | `single_winner` | `session_id`, `title`, `share_url` |
+| `sidebar_content` | append          | `session_id`                       |
+| `sidebar_footer`  | `single_winner` | `session_id`                       |
+
+Slots are ordered by `order` (lower = higher in sidebar). Our usage widget uses `order: 90` to appear before the default context widget (`order: 100`).
+
+### Plugin Loading
+
+OpenCode resolves plugins via:
+
+1. `package.json` `exports["./server"]` and `exports["./tui"]` (V1 format)
+2. Legacy fallback: iterates all named exports looking for `Plugin` functions
+
+The `config` field in `package.json` exports provides default options that can be overridden in user config.
+
+### Our TUI Plugin (`src/tui.tsx`)
+
+Provides:
+
+- **Sidebar widget**: Compact 5H/7D progress bars with color coding (green → yellow → red)
+- **`/usage` command**: Full dialog with per-model breakdown and extra usage info
+- **Auto-refresh**: Polls `/api/oauth/usage` every 60s + refreshes 2s after `session.idle`
+
+The TUI plugin imports `fetchUsage` and `formatReset` from `src/usage.ts` to avoid duplicating usage API logic.
+
+### Development Setup
+
+For local TUI plugin testing, point `.opencode/tui.json` to the source file:
+
+```json
+{
+  "plugin": ["file:///path/to/repo/src/tui.tsx"]
+}
+```
+
+The server plugin goes in `.opencode/opencode.json` separately:
+
+```json
+{
+  "plugin": ["file:///path/to/repo/build/server.js"]
+}
+```
+
+---
+
 ## Key Discoveries Timeline
 
 1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus
@@ -716,4 +800,5 @@ The mechanism was reverse-engineered from Claude Code's custom Bun binary. In th
 12. **`inference_geo: "not_available"`** → Does NOT mean caching is unavailable; it's overflow routing that only disables caching when session is at 100% utilization
 13. **Long context billing** → `"Extra usage is required for long context requests"` (429) when context exceeds subscription limit without Extra usage enabled. Claude Code avoids this via built-in context management (`context-management-2025-06-27` beta) that truncates context before sending — it never actually hits this limit. The `context-1m-2025-08-07` beta does NOT bypass billing — Extra usage must be enabled at `claude.ai/settings`
 14. **`context-1m-2025-08-07` is conditional** → Claude Code only sends it when model ID includes `[1m]` suffix (checked via `/\[1m\]/i.test(modelId)`). Always sending it triggers the "Extra usage required" billing check even on small requests
-15. **Context window limits per model** → See table below
+15. **Context window limits per model** → See table above
+16. **TUI plugin system** → OpenCode v1.3+ supports `./server` and `./tui` package.json exports for split server/TUI plugins. TUI plugins use SolidJS with `@opentui/solid` JSX and are loaded as raw `.tsx` by Bun. Sidebar slots, slash commands, and dialogs are all available via the `TuiPluginApi`

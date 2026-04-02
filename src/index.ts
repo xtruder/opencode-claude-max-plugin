@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { AnthropicSDKModel } from "./model.ts"
 import { getCachedCredentials } from "./credentials.ts"
-import { cachedUsage } from "./usage-cache.ts"
+import { cachedUsage, persistCachedUsage } from "./usage.ts"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
@@ -273,7 +273,7 @@ export function createAnthropicSDK(
       )
       cachedUsage.overageStatus =
         resp.headers.get("anthropic-ratelimit-unified-overage-status") ?? undefined
-      cachedUsage.timestamp = Date.now()
+      persistCachedUsage()
     }
 
     if (resp.status === 429) {

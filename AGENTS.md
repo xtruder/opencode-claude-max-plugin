@@ -12,7 +12,7 @@ An OpenCode provider plugin that routes requests through `@anthropic-ai/sdk` usi
 bun run build
 ```
 
-Bundles `src/index.ts`, `src/agent-index.ts`, `src/usage-cli.ts` to `build/` via Bun, then emits TypeScript declarations with `tsc`. Always rebuild after any source change before testing via OpenCode.
+Bundles `src/index.ts` and `src/server.ts` to `build/` via Bun, then emits TypeScript declarations with `tsc`. The TUI plugin (`src/tui.tsx`) is loaded as raw source by Bun — no build step needed. Always rebuild after any source change before testing via OpenCode.
 
 ### Type check only (fast)
 
@@ -49,22 +49,13 @@ git push origin vX.Y.Z           # push the tag (use the version printed by npm 
 
 ### Setup (first time)
 
-The plugin must be installed in the OpenCode cache. Since it's a `file:` symlink, rebuilding is enough — no reinstall needed:
+Generate local dev config files that point to the build output and TUI source:
 
 ```bash
-# Install the local package into OpenCode's cache
-cat > ~/.cache/opencode/package.json << 'EOF'
-{
-  "dependencies": {
-    "opencode-anthropic-auth": "0.0.13",
-    "@xtruder/opencode-claude-max-plugin": "file:/path/to/this/repo"
-  }
-}
-EOF
-bun install
+bun run dev:config
 ```
 
-Replace `/path/to/this/repo` with the actual path (e.g. `/home/user/Code/opencode-anthropic-sdk-provider`).
+This creates `.opencode/opencode.json` (server plugin + provider) and `.opencode/tui.json` (TUI plugin) with absolute `file://` paths. Since it uses local paths, rebuilding (`bun run build`) is enough — no reinstall needed.
 
 ### Test a single prompt via CLI
 
@@ -83,11 +74,7 @@ opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Read package.json and
 
 ### Check usage
 
-```bash
-opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" /usage
-# or directly:
-node ~/.cache/opencode/node_modules/@xtruder/opencode-claude-max-plugin/build/usage-cli.js
-```
+In the TUI, type `/usage` to open the usage dialog. The sidebar also shows live usage bars when the TUI plugin is loaded.
 
 ### Debug with logs
 
@@ -134,16 +121,20 @@ echo "Say OK" | claude -p --output-format json | python3 -c "import json,sys; d=
 ```
 src/
 ├── index.ts              # createAnthropicSDK() factory, auth resolution, fetch wrapper
-├── model.ts              # AnthropicSDKModel — LanguageModelV2 (doGenerate + doStream)
+├── server.ts             # V1 plugin format wrapper (default export { id, server })
+├── tui.tsx               # TUI plugin: sidebar usage widget + /usage command (SolidJS)
+├── model.ts              # AnthropicSDKModel — LanguageModelV3 (doGenerate + doStream)
 ├── prompt.ts             # AI SDK prompt → Anthropic Messages API converter
-├── stream.ts             # Anthropic SSE events → AI SDK LanguageModelV2StreamPart
+├── stream.ts             # Anthropic SSE events → AI SDK LanguageModelV3StreamPart
 ├── tools.ts              # AI SDK tools → Anthropic format + schema cleanup
 ├── tool-names.ts         # Bidirectional tool name mapping (OpenCode ↔ Claude Code)
 ├── credentials.ts        # Claude Code OAuth credentials reader + CLI refresh
-├── usage.ts              # /api/oauth/usage API client + formatter
+├── usage.ts              # Usage types, fetchUsage(), cachedUsage, formatReset()
+├── cch.ts                # CCH request signing (xxHash64 body integrity hash)
 ├── credentials.test.ts   # Unit + integration tests for credentials
 ├── index.test.ts         # Tests for createAnthropicSDK factory
 ├── model.test.ts         # Integration tests for model (API calls)
+├── cch.test.ts           # Tests for CCH computation
 └── fixtures/             # Captured OpenCode request data for caching tests
     ├── opencode-system.txt
     └── opencode-tools.json

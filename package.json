@@ -11,7 +11,10 @@
   ],
   "license": "MIT",
   "files": [
-    "build"
+    "build",
+    "src/tui.tsx",
+    "src/usage.ts",
+    "src/credentials.ts"
   ],
   "type": "module",
   "main": "build/index.js",
@@ -20,10 +23,22 @@
     ".": {
       "import": "./build/index.js",
       "types": "./build/index.d.ts"
+    },
+    "./server": {
+      "import": "./build/server.js",
+      "config": {}
+    },
+    "./tui": {
+      "import": "./src/tui.tsx",
+      "config": {
+        "enabled": true,
+        "sidebar": true,
+        "poll_interval": 60
+      }
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
+    "build": "bun build ./src/index.ts ./src/server.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
     "dev": "bun run dev:config && bun build ./src/index.ts --outdir ./build --target node --format esm --packages external --watch",
     "dev:config": "bun scripts/dev-config.ts",
     "test": "bun test --concurrency 1 src/*.test.ts",
@@ -49,9 +64,30 @@
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@ai-sdk/provider": ">=2.0.0"
+    "@ai-sdk/provider": ">=2.0.0",
+    "@opencode-ai/plugin": "*",
+    "@opentui/core": "*",
+    "@opentui/solid": "*",
+    "solid-js": "*"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
   },
   "simple-git-hooks": {
     "pre-commit": "bun run lint && bun run format:check"
+  },
+  "engines": {
+    "opencode": ">=1.3.13"
   }
 }

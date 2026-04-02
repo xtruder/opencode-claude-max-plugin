@@ -2,6 +2,8 @@
 
 An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscription access via the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript), using OAuth credentials from Claude Code (`~/.claude/.credentials.json`).
 
+![Usage sidebar and /usage command dialog](assets/example-with-usage.png)
+
 ## Why?
 
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
@@ -9,7 +11,7 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 - **Prompt caching** — 98% of input tokens served from cache (system prompt + tools cached globally)
 - **All Claude models** — Opus 4.6, Sonnet 4.6, Haiku 4.5
 - **Extended thinking** — Full reasoning support with thinking variants (high/max)
-- **Usage tracking** — Built-in `/usage` command shows subscription utilization
+- **Usage tracking** — Sidebar widget with live progress bars + `/usage` command with full details
 - **Self-registering** — Models are registered automatically, no manual provider config needed
 
 ## Installation
@@ -26,6 +28,57 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
 Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
+
+### TUI Plugin (sidebar + /usage command)
+
+The plugin includes a TUI component that shows subscription usage in the sidebar and registers a `/usage` slash command. To enable it, add the plugin to your `tui.json` as well:
+
+**Project-level** (`.opencode/tui.json`):
+
+```json
+{
+  "plugin": ["@xtruder/opencode-claude-max-plugin"]
+}
+```
+
+**Or globally** (`~/.config/opencode/tui.json`):
+
+```json
+{
+  "plugin": ["@xtruder/opencode-claude-max-plugin"]
+}
+```
+
+The TUI plugin provides:
+
+- **Sidebar widget** — Compact progress bars for 5-hour session and 7-day weekly usage
+- **`/usage` command** — Opens a dialog with full usage breakdown (per-model, extra usage)
+- **Auto-refresh** — Polls the usage API every 60s and after each inference call
+
+#### TUI Configuration
+
+Options can be set in the `tui.json` plugin entry:
+
+```json
+{
+  "plugin": [
+    [
+      "@xtruder/opencode-claude-max-plugin",
+      {
+        "enabled": true,
+        "sidebar": true,
+        "poll_interval": 60
+      }
+    ]
+  ]
+}
+```
+
+| Option          | Type    | Default | Description                               |
+| --------------- | ------- | ------- | ----------------------------------------- |
+| `enabled`       | boolean | `true`  | Enable/disable the TUI plugin entirely    |
+| `sidebar`       | boolean | `true`  | Show/hide sidebar usage widget            |
+| `poll_interval` | number  | `60`    | Seconds between usage API polls (min: 10) |
 
 ### Custom model options
 
@@ -74,23 +127,7 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 - CCH request signing — computes xxHash64 body integrity hash to unlock features like fast mode
 - Subscription rate limit detection — fails fast with clear message instead of hanging
 - Long context auto-detection — adds `context-1m` beta header when request body is large
-- `/usage` slash command — shows current session and weekly utilization
-
-## Usage Command
-
-After adding the config, run `/usage` inside OpenCode to see your subscription usage:
-
-```
-  Claude Subscription Usage
-  ────────────────────────────────────────────────────
-  Current session
-  ████████████████████████████████░░░░░░░░░░░░░░░░░░  67% used
-  Resets 7:00 PM GMT+1
-
-  Current week (all models)
-  ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  8% used
-  Resets Mar 30, 7:00 AM GMT+2
-```
+- TUI sidebar with live usage bars + `/usage` slash command with full subscription details
 
 ## With Vercel AI SDK
 
