@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { AnthropicSDKModel } from "./model.ts"
 import { getCachedCredentials } from "./credentials.ts"
 import { cachedUsage } from "./usage-cache.ts"
+import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 
@@ -235,6 +236,23 @@ export function createAnthropicSDK(
       if (!existingBetas.includes(CONTEXT_1M_BETA)) {
         betaHeaders.set("anthropic-beta", existingBetas + "," + CONTEXT_1M_BETA)
         init = { ...init, headers: betaHeaders }
+      }
+    }
+
+    // CCH request signing: compute xxHash64 body integrity hash and replace
+    // the cch=00000 placeholder before sending. Only applies to OAuth requests
+    // hitting /v1/messages that contain the billing header placeholder.
+    if (
+      auth.isOAuth &&
+      init?.body &&
+      typeof init.body === "string" &&
+      hasCchPlaceholder(init.body)
+    ) {
+      try {
+        const cch = await computeCch(init.body)
+        init = { ...init, body: replaceCchPlaceholder(init.body, cch) }
+      } catch {
+        // Never let CCH signing crash the fetch — send with placeholder if it fails
       }
     }
 

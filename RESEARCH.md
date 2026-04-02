@@ -651,6 +651,55 @@ The char-to-token ratio is approximately **1.63 chars per token** (not the typic
 
 ---
 
+## CCH Request Signing (Body Integrity Hash)
+
+### What is `cch`?
+
+The `cch` field in the `x-anthropic-billing-header` system block is an xxHash64-based integrity hash computed over the entire serialized request body. Anthropic's servers verify it to gate features like fast mode. Getting it wrong results in: _"Fast mode is currently available in research preview in Claude Code. It is not yet available via API."_
+
+### Where it lives
+
+The `cch=00000` placeholder is embedded in the billing system block (`src/model.ts`), which is always injected as `system[0]`:
+
+```json
+{
+  "type": "text",
+  "text": "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;"
+}
+```
+
+### Algorithm
+
+1. Build the complete request body JSON with `cch=00000` as a placeholder
+2. Compute `xxHash64(body_bytes, seed) & 0xFFFFF` (seed: `0x6E52736AC806831E`)
+3. Format as zero-padded 5-character lowercase hex
+4. Replace the first occurrence of `cch=00000` in the body with `cch=<computed>`
+
+The hash covers the **entire serialized body** -- messages, tools, metadata, model, thinking config, everything. Modifying any field after hashing (swapping a session UUID, removing a tool, editing a tool description) causes a 400 rejection.
+
+### Where we compute it
+
+The hash is computed in the `wrappedFetch` interceptor (`src/index.ts`), right before the request is sent to the API. This is the last point where we have access to the serialized body string. The flow:
+
+1. `model.ts` `buildParams()` constructs params with `system[0]` containing `cch=00000`
+2. The Anthropic SDK serializes params to JSON and calls `fetch()`
+3. Our `wrappedFetch` intercepts, detects `cch=00000` in the body string
+4. `computeCch()` (`src/cch.ts`) hashes the body using xxHash64 WASM and masks to 20 bits
+5. `replaceCchPlaceholder()` swaps `cch=00000` with `cch=<hash>`
+6. The modified body is forwarded to the real `fetch()`
+
+Only applied to OAuth requests (API key requests don't need it).
+
+### Implementation
+
+The implementation lives in `src/cch.ts` and uses `xxhash-wasm` (WebAssembly-based, no native bindings). The hasher is lazily initialized on first use.
+
+### Origin
+
+The mechanism was reverse-engineered from Claude Code's custom Bun binary. In the original Claude Code, the hash computation happens in Bun's native `nativeFetch` (compiled Zig code) -- the JavaScript only writes the `cch=00000` placeholder, and the runtime overwrites the zeros in the string buffer before sending. See: https://a10k.co/b/reverse-engineering-claude-code-cch.html
+
+---
+
 ## Key Discoveries Timeline
 
 1. **OAuth tokens sent as x-api-key** → Only worked for Haiku, not Sonnet/Opus

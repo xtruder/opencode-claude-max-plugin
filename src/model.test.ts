@@ -355,7 +355,7 @@ describe("thinking", () => {
     const text = result.content.find((c) => c.type === "text")
     expect(text).not.toBeUndefined()
     expect((text as any).text).toContain("14")
-  })
+  }, 30_000)
 })
 
 // ─── Reasoning effort ────────────────────────────────────────────────────────

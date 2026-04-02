@@ -34,7 +34,8 @@
     "prepare": "simple-git-hooks"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.74.0"
+    "@anthropic-ai/sdk": "0.74.0",
+    "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
