@@ -13,9 +13,11 @@
     "rootDir": "src",
     "lib": ["ESNext"],
     "types": ["bun-types"],
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/**/*.test.ts", "node_modules", "build", "opencode-ref"]
 }

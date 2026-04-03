@@ -4,7 +4,7 @@
  * Run via `bun run dev:config`.
  *
  * - opencode.json: server plugin (build/server.js) + provider (build/index.js)
- * - tui.json: TUI plugin (src/tui.tsx via package root)
+ * - tui.json: TUI plugin (src/tui.tsx)
  */
 import { writeFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"

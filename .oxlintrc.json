@@ -7,14 +7,7 @@
   },
   "rules": {
     "no-await-in-loop": "off",
-    "sort-imports": [
-      "warn",
-      {
-        "ignoreDeclarationSort": false,
-        "ignoreMemberSort": false,
-        "memberSyntaxSortOrder": ["none", "all", "multiple", "single"]
-      }
-    ]
+    "sort-imports": "off"
   },
   "ignorePatterns": ["build", "node_modules"]
 }

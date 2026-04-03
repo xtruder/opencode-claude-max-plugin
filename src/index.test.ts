@@ -5,10 +5,10 @@
  */
 import { describe, expect, test } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { clearCredentialCache } from "./credentials.ts"
 import { createAnthropicSDK } from "./index.ts"
-import { join } from "node:path"
-import { tmpdir } from "node:os"
 
 // ─── createAnthropicSDK ─────────────────────────────────────────────────────
 

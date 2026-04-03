@@ -1,3 +1,4 @@
+import { describe, expect, test } from "bun:test"
 /**
  * Tests for cch.ts — CCH (Client Challenge Hash) request signing.
  *
@@ -7,7 +8,6 @@
  * Run with: bun test src/cch.test.ts
  */
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
-import { describe, expect, test } from "bun:test"
 
 // ─── computeCch ─────────────────────────────────────────────────────────────
 

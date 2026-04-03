@@ -1,10 +1,10 @@
-import { cachedUsage, persistCachedUsage } from "./usage.ts"
-import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
-import Anthropic from "@anthropic-ai/sdk"
-import { AnthropicSDKModel } from "./model.ts"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
+import Anthropic from "@anthropic-ai/sdk"
+import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
 import { getCachedCredentials } from "./credentials.ts"
+import { AnthropicSDKModel } from "./model.ts"
+import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
 /**
  * Claude Code CLI version to impersonate.
@@ -26,12 +26,6 @@ const OAUTH_BETAS = [
 ]
 
 /**
- * Beta flag that enables 1M context window. Only sent when request body
- * exceeds the standard context threshold (~600K chars).
- */
-const CONTEXT_1M_BETA = "context-1m-2025-08-07"
-
-/**
  * Beta flags for regular API key auth (no OAuth).
  */
 const API_KEY_BETAS = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
@@ -40,115 +34,119 @@ const PACKAGE_NAME = "@xtruder/opencode-claude-max-plugin"
 const PROVIDER_ID = "anthropic-sdk"
 
 /**
- * Models registered by the plugin. Only the three stable aliases —
- * users on Claude Max do not pay per-token, but real pricing is listed
- * for informational purposes in the model picker.
- *
- * Costs are in USD per million tokens.
+ * Per-token pricing in USD per million tokens.
+ * Used when authenticating with an API key. OAuth/subscription users
+ * pay a flat monthly fee — their cost fields are zeroed out at
+ * registration time.
  */
-const PLUGIN_MODELS = {
-  "claude-haiku-4-5": {
-    name: "Claude Haiku 4.5",
-    reasoning: false,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 8_192 },
-    cost: { input: 0.8, output: 4.0, cache_read: 0.08, cache_write: 1.0 },
-    modalities: {
-      input: ["text", "image"] as Array<"text" | "image">,
-      output: ["text"] as Array<"text">,
-    },
-  },
-  "claude-haiku-4-5-20251001": {
-    name: "Claude Haiku 4.5",
-    reasoning: false,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 8_192 },
-    cost: { input: 0.8, output: 4.0, cache_read: 0.08, cache_write: 1.0 },
-    modalities: {
-      input: ["text", "image"] as Array<"text" | "image">,
-      output: ["text"] as Array<"text">,
-    },
-  },
-  "claude-sonnet-4-6": {
-    name: "Claude Sonnet 4.6",
-    reasoning: true,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 16_000 },
-    cost: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
-    modalities: {
-      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-      output: ["text"] as Array<"text">,
-    },
-    options: { effort: "medium" },
+const API_KEY_COSTS = {
+  haiku: { input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25 },
+  sonnet: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
+  opus: { input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25 },
+} as const
+
+const ZERO_COST = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
+
+/**
+ * Base model definitions. Context and output limits match Anthropic's
+ * official specs (context-windows doc + models overview).
+ *
+ * - Haiku 4.5:       200K context, 64K output
+ * - Sonnet 4.6:      200K context, 64K output
+ * - Opus 4.6:        200K context, 128K output  (conservative, matches Claude Code default)
+ * - Opus 4.6 (1M):  1M context,  128K output  (empirically confirmed: hard 1M token limit)
+ *
+ * The 200K default context matches Claude Code's MODEL_CONTEXT_WINDOW_DEFAULT.
+ * Opus 4.6 natively accepts up to 1M tokens on Max subscription without any
+ * special beta header — confirmed empirically (fails at exactly 1,000,000 tokens).
+ *
+ * OAuth/subscription users pay $0 per-token (flat monthly fee).
+ * API key users pay real Anthropic rates.
+ */
+function buildPluginModels(isOAuth: boolean) {
+  const cost = (tier: keyof typeof API_KEY_COSTS) => (isOAuth ? ZERO_COST : API_KEY_COSTS[tier])
+
+  const opusVariants = {
     variants: {
       low: { effort: "low" },
       medium: { effort: "medium" },
       high: { effort: "high" },
+      max: { effort: "max" },
     },
-  },
-  "claude-sonnet-4-6-20251001": {
-    name: "Claude Sonnet 4.6",
-    reasoning: true,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 16_000 },
-    cost: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
-    modalities: {
-      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-      output: ["text"] as Array<"text">,
+  }
+
+  return {
+    "claude-haiku-4-5": {
+      name: "Claude Haiku 4.5",
+      reasoning: false,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 200_000, output: 64_000 },
+      cost: cost("haiku"),
+      modalities: {
+        input: ["text", "image"] as Array<"text" | "image">,
+        output: ["text"] as Array<"text">,
+      },
     },
-    options: { effort: "medium" },
-    variants: {
-      low: { effort: "low" },
-      medium: { effort: "medium" },
-      high: { effort: "high" },
+    "claude-sonnet-4-6": {
+      name: "Claude Sonnet 4.6",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 200_000, output: 64_000 },
+      cost: cost("sonnet"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      variants: {
+        low: { effort: "low" },
+        medium: { effort: "medium" },
+        high: { effort: "high" },
+      },
     },
-  },
-  "claude-opus-4-6": {
-    name: "Claude Opus 4.6",
-    reasoning: true,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 32_000 },
-    cost: { input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75 },
-    modalities: {
-      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-      output: ["text"] as Array<"text">,
+    "claude-opus-4-6": {
+      name: "Claude Opus 4.6",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 200_000, output: 128_000 },
+      cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      ...opusVariants,
     },
-    options: { effort: "medium" },
-    variants: {
-      low: { effort: "low" },
-      medium: { effort: "medium" },
-      high: { effort: "high" },
+    /**
+     * Opus 4.6 with full 1M context window.
+     *
+     * Empirically confirmed: Opus 4.6 accepts up to exactly 1,000,000 input tokens
+     * on Max subscription with no special beta header. The model ID sent to the API
+     * is identical ("claude-opus-4-6") — only the OpenCode context limit differs,
+     * which controls when compaction triggers.
+     */
+    "claude-opus-4-6-1m": {
+      name: "Claude Opus 4.6 (1M)",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      ...opusVariants,
     },
-  },
-  "claude-opus-4-6-20251001": {
-    name: "Claude Opus 4.6",
-    reasoning: true,
-    tool_call: true,
-    attachment: true,
-    temperature: true,
-    limit: { context: 200_000, output: 32_000 },
-    cost: { input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75 },
-    modalities: {
-      input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-      output: ["text"] as Array<"text">,
-    },
-    options: { effort: "medium" },
-    variants: {
-      low: { effort: "low" },
-      medium: { effort: "medium" },
-      high: { effort: "high" },
-    },
-  },
+  }
 }
 
 export interface AnthropicSDKProviderOptions {
@@ -256,13 +254,6 @@ export function createAnthropicSDK(
     defaultHeaders["x-stainless-package-version"] = "0.74.0"
   }
 
-  /**
-   * Approximate body size threshold (in bytes) for switching to 1M context.
-   * Standard context is ~200K tokens ≈ ~800K chars. We trigger at ~600K chars
-   * (~150K tokens) to give headroom before hitting the standard limit.
-   */
-  const CONTEXT_1M_BODY_THRESHOLD = 600_000
-
   const baseFetch = customFetch ?? globalThis.fetch
   const wrappedFetch = async (url: string | URL | Request, init?: RequestInit) => {
     // For OAuth requests, re-read credentials on every call so we pick up
@@ -273,20 +264,6 @@ export function createAnthropicSDK(
         const reqHeaders = new Headers(init.headers)
         reqHeaders.set("authorization", `Bearer ${freshCreds.accessToken}`)
         init = { ...init, headers: reqHeaders }
-      }
-    }
-
-    // Auto-enable 1M context when the request body is large enough.
-    if (
-      init?.body &&
-      typeof init.body === "string" &&
-      init.body.length > CONTEXT_1M_BODY_THRESHOLD
-    ) {
-      const betaHeaders = new Headers(init.headers)
-      const existingBetas = betaHeaders.get("anthropic-beta") ?? ""
-      if (!existingBetas.includes(CONTEXT_1M_BETA)) {
-        betaHeaders.set("anthropic-beta", existingBetas + "," + CONTEXT_1M_BETA)
-        init = { ...init, headers: betaHeaders }
       }
     }
 
@@ -384,6 +361,10 @@ export function createAnthropicSDK(
  * hook slots undefined (no-ops).
  */
 export const anthropicSDKPlugin: Plugin = async () => {
+  // Determine auth mode once at plugin init to select the right pricing.
+  // OAuth/subscription users pay $0 per-token (flat monthly fee).
+  const isOAuth = resolveAuth({}).isOAuth
+
   return {
     config: async (cfg) => {
       // Inject the anthropic-sdk provider with its model list.
@@ -398,7 +379,7 @@ export const anthropicSDKPlugin: Plugin = async () => {
       // or individual model settings while the plugin provides the base.
       cfg.provider[PROVIDER_ID] = {
         npm: PACKAGE_NAME,
-        models: PLUGIN_MODELS,
+        models: buildPluginModels(isOAuth),
         ...cfg.provider[PROVIDER_ID],
       }
     },

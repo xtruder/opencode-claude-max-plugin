@@ -9,11 +9,11 @@
  * using an API key.
  */
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { readClaudeCredentials } from "./credentials.ts"
 // import { streamText, generateText, tool } from "ai"  // Requires ai@6 for V3 models
 // import { z } from "zod"
 import { createAnthropicSDK } from "./index.ts"
-import { readClaudeCredentials } from "./credentials.ts"
-import { readFileSync } from "node:fs"
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 

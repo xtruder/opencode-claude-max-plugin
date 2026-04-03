@@ -1,4 +1,3 @@
-import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
@@ -9,12 +8,13 @@ import type {
   LanguageModelV3StreamResult,
   SharedV3Warning,
 } from "@ai-sdk/provider"
-import { convertToolChoice, convertTools } from "./tools.ts"
-import { createHash, randomBytes } from "node:crypto"
-import { rewriteToolNamesInText, toOpencodeToolName } from "./tool-names.ts"
 import type Anthropic from "@anthropic-ai/sdk"
+import { APIError, RateLimitError } from "@anthropic-ai/sdk"
+import { createHash, randomBytes } from "node:crypto"
 import { convertPrompt } from "./prompt.ts"
 import { convertStream } from "./stream.ts"
+import { rewriteToolNamesInText, toOpencodeToolName } from "./tool-names.ts"
+import { convertToolChoice, convertTools } from "./tools.ts"
 
 type DoGenerateResult = LanguageModelV3GenerateResult
 type DoStreamResult = LanguageModelV3StreamResult
@@ -115,11 +115,24 @@ function buildMetadata(): { user_id: string } {
   }
 }
 
+/**
+ * Whether the model supports the context-management beta (Claude 4+ models).
+ * Matches Claude Code's modelSupportsContextManagement().
+ */
+function supportsContextManagement(apiModelId: string): boolean {
+  return !apiModelId.includes("claude-3-")
+}
+
 export class AnthropicSDKModel implements LanguageModelV3 {
   readonly specificationVersion = "v3" as const
   readonly provider: string
   readonly modelId: string
   readonly supportedUrls: Record<string, RegExp[]> = {}
+
+  /** Model ID sent to the Anthropic API (without our -1m suffix). */
+  private readonly apiModelId: string
+  /** Whether this is a 1M context variant (affects only compaction threshold, not API calls). */
+  private readonly is1MContext: boolean
 
   constructor(
     modelId: string,
@@ -129,6 +142,9 @@ export class AnthropicSDKModel implements LanguageModelV3 {
   ) {
     this.modelId = modelId
     this.provider = providerName
+    // Strip our -1m suffix — it's a virtual variant, not a real model ID
+    this.is1MContext = modelId.endsWith("-1m")
+    this.apiModelId = this.is1MContext ? modelId.replace(/-1m$/, "") : modelId
   }
 
   private buildParams(options: LanguageModelV3CallOptions) {
@@ -156,7 +172,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     // max_tokens > 4096 when not streaming. We use 64000 as streaming default
     // but allow doGenerate to set a lower value if needed.
     const params: Record<string, any> = {
-      model: this.modelId,
+      model: this.apiModelId,
       max_tokens: options.maxOutputTokens ?? 64000,
       messages,
     }
@@ -203,7 +219,8 @@ export class AnthropicSDKModel implements LanguageModelV3 {
 
       // Claude Code sends temperature: 1 and output_config for models that support it
       // Haiku and older models don't support the effort parameter
-      const supportsEffort = !this.modelId.includes("haiku") && !this.modelId.includes("claude-3-")
+      const supportsEffort =
+        !this.apiModelId.includes("haiku") && !this.apiModelId.includes("claude-3-")
       if (supportsEffort) {
         if (options.temperature == null) {
           params.temperature = 1
@@ -315,7 +332,42 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       if (anthropicOptions.metadata) params.metadata = anthropicOptions.metadata
     }
 
+    // Context management: preserve thinking blocks in context for better
+    // cache performance, matching Claude Code's behavior for non-internal users.
+    //
+    // When extended thinking is active, the API default (without explicit config)
+    // strips thinking to only the last 1 turn. Claude Code sends keep: "all"
+    // to preserve all thinking blocks, which maintains prompt cache validity.
+    //
+    // For OAuth requests where context-management beta is present, we send:
+    //   clear_thinking_20251015 with keep: "all"
+    // This matches Claude Code's getAPIContextManagement() for non-ant users.
+    if (this.isOAuth && supportsContextManagement(this.apiModelId)) {
+      const edits: any[] = []
+      const hasThinking = params.thinking?.type === "enabled"
+      if (hasThinking) {
+        edits.push({
+          type: "clear_thinking_20251015",
+          keep: "all",
+        })
+      }
+      if (edits.length > 0) {
+        params.context_management = { edits }
+      }
+    }
+
     return { params, warnings }
+  }
+
+  /**
+   * Build per-request SDK options (headers, signal).
+   * The -1m suffix only controls OpenCode's compaction threshold — no extra
+   * beta header is needed since Opus 4.6 natively supports 1M tokens.
+   */
+  private buildRequestOptions(signal?: AbortSignal): Record<string, any> {
+    const opts: Record<string, any> = {}
+    if (signal) opts.signal = signal
+    return opts
   }
 
   async doGenerate(options: LanguageModelV3CallOptions): Promise<DoGenerateResult> {
@@ -334,7 +386,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           ...params,
           stream: false,
         } as Anthropic.MessageCreateParamsNonStreaming,
-        { signal: options.abortSignal },
+        this.buildRequestOptions(options.abortSignal),
       )) as Anthropic.Message
     } catch (error) {
       handleApiError(error)
@@ -414,7 +466,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           ...params,
           stream: true,
         } as Anthropic.MessageCreateParamsStreaming,
-        { signal: options.abortSignal },
+        this.buildRequestOptions(options.abortSignal),
       )
     } catch (error) {
       // Anthropic rejects assistant message prefill on OAuth-routed requests.

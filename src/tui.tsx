@@ -1,12 +1,11 @@
-// @ts-nocheck
 /** @jsxImportSource @opentui/solid */
-import { Show, createMemo, createSignal } from "solid-js"
 import type {
   TuiPlugin,
   TuiPluginApi,
   TuiPluginModule,
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui"
+import { type Accessor, Show, createMemo, createSignal } from "solid-js"
 import {
   type UsageData,
   bestUsageFromCache,
@@ -194,7 +193,7 @@ function UsageSidebar(props: {
           <b>Claude Usage</b>
         </text>
         <Show when={fiveHour()}>
-          {(data) => {
+          {(data: Accessor<{ ratio: number; reset: string | null }>) => {
             const label = "5H "
             const suffix = createMemo(() => ` ${pct(data().ratio)}`)
             return (
@@ -214,7 +213,7 @@ function UsageSidebar(props: {
           }}
         </Show>
         <Show when={sevenDay()}>
-          {(data) => {
+          {(data: Accessor<{ ratio: number; reset: string | null }>) => {
             const label = "7D "
             const suffix = createMemo(() => ` ${pct(data().ratio)}`)
             return (
@@ -330,7 +329,7 @@ function UsageDialog(props: {
         ))
       })()}
       <Show when={extra()}>
-        {(ex) => (
+        {(ex: Accessor<{ enabled: boolean; text: string }>) => (
           <box paddingTop={1}>
             <text fg={ex().enabled ? theme().warning : theme().textMuted}>{ex().text}</text>
           </box>
