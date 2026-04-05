@@ -29,13 +29,18 @@ type Cfg = {
 }
 
 const bool = (value: unknown, fallback: boolean) => {
-  if (typeof value !== "boolean") return fallback
-  return value
+  if (typeof value === "boolean") return value
+  if (typeof value === "string") return value === "true"
+  return fallback
 }
 
 const num = (value: unknown, fallback: number) => {
-  if (typeof value !== "number") return fallback
-  return value
+  if (typeof value === "number") return value
+  if (typeof value === "string" && value.length > 0) {
+    const n = Number(value)
+    if (!Number.isNaN(n)) return n
+  }
+  return fallback
 }
 
 const rec = (value: unknown) => {
