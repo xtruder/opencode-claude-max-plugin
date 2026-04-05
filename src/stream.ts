@@ -67,8 +67,8 @@ export function convertStream(
               finishReason,
               usage: {
                 inputTokens: {
-                  total: inputTokens ?? 0,
-                  noCache: undefined,
+                  total: (inputTokens ?? 0) + (cachedInputTokens ?? 0) + (cacheCreationTokens ?? 0),
+                  noCache: inputTokens ?? 0,
                   cacheRead: cachedInputTokens ?? 0,
                   cacheWrite: cacheCreationTokens ?? 0,
                 },

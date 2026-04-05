@@ -431,8 +431,8 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       finishReason: mapFinishReason(response.stop_reason),
       usage: {
         inputTokens: {
-          total: response.usage.input_tokens,
-          noCache: undefined,
+          total: response.usage.input_tokens + cacheReadTokens + cacheCreateTokens,
+          noCache: response.usage.input_tokens,
           cacheRead: cacheReadTokens,
           cacheWrite: cacheCreateTokens,
         },
