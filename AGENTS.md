@@ -135,8 +135,8 @@ src/
 ├── index.test.ts         # Tests for createAnthropicSDK factory
 ├── model.test.ts         # Integration tests for model (API calls)
 ├── cch.test.ts           # Tests for CCH computation
-└── fixtures/             # Captured OpenCode request data for caching tests
-    ├── opencode-system.txt
+├── claudecode-system.txt  # Captured Claude Code base system prompt
+└── fixtures/              # Captured OpenCode request data for caching tests
     └── opencode-tools.json
 ```
 

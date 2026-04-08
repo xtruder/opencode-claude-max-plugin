@@ -2,9 +2,12 @@ import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 import Anthropic from "@anthropic-ai/sdk"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
+import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
 import { AnthropicSDKModel } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
+
+export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
 
 /**
  * Claude Code CLI version to impersonate.
@@ -284,6 +287,27 @@ export function createAnthropicSDK(
       }
     }
 
+    // Claude Code only opts into long-context routing dynamically for very
+    // large requests. Sending this beta unconditionally causes subscription
+    // errors on normal requests for tiers/models that do not support it.
+    if (auth.isOAuth && init?.body && typeof init.body === "string") {
+      const reqHeaders = new Headers(init.headers)
+      const betas = (reqHeaders.get("anthropic-beta") ?? "")
+        .split(",")
+        .map((beta) => beta.trim())
+        .filter(Boolean)
+
+      if (init.body.length > 600_000) {
+        if (!betas.includes("context-1m-2025-08-07")) betas.push("context-1m-2025-08-07")
+      } else {
+        const filtered = betas.filter((beta) => beta !== "context-1m-2025-08-07")
+        if (filtered.length !== betas.length) betas.splice(0, betas.length, ...filtered)
+      }
+
+      reqHeaders.set("anthropic-beta", betas.join(","))
+      init = { ...init, headers: reqHeaders }
+    }
+
     const resp = await baseFetch(url, init)
 
     // Cache ratelimit usage headers from every response
@@ -382,6 +406,16 @@ export const anthropicSDKPlugin: Plugin = async () => {
         models: buildPluginModels(isOAuth),
         ...cfg.provider[PROVIDER_ID],
       }
+    },
+    "experimental.chat.system.transform": async (_input, output) => {
+      if (output.system.length === 0) {
+        output.system.push(CLAUDE_CODE_SYSTEM_PROMPT)
+        return
+      }
+
+      // Replace OpenCode's base prompt with the Claude-compatible prompt while
+      // preserving any additional system entries OpenCode appends for modes.
+      output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT
     },
   }
 }

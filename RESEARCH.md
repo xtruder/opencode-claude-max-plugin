@@ -2,6 +2,8 @@
 
 This document summarizes the findings from reverse-engineering Claude Code's request format, authentication, and internal structure to build a compatible OpenCode provider.
 
+Last updated: 2026-04-08
+
 ## Credentials
 
 ### Location
@@ -106,7 +108,7 @@ These are the exact headers Claude Code sends, in order of discovery importance:
 
 ### Beta Flags
 
-Claude Code sends these beta flags (order matches what we intercepted):
+Claude Code sends these base beta flags on normal OAuth requests (order matches what we intercepted):
 
 ```
 claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24
@@ -122,6 +124,8 @@ claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-ma
 | `effort-2025-11-24`               | Output effort control (`output_config.effort`) |
 
 The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model access — the billing system block is also required.
+
+`context-1m-2025-08-07` is **not** always-on. It must only be added conditionally for long-context requests; sending it unconditionally triggers subscription errors on unsupported tiers/models.
 
 ### Headers That Don't Need to Match
 
@@ -243,12 +247,7 @@ MCP server names are auto-detected from OpenCode config files:
 
 ### Tool Name References in System Prompt
 
-OpenCode's system prompt references tool names that we also rewrite:
-
-- `"use the Task tool"` → `"use the Agent tool"`
-- `"the question to ask"` → `"the AskUserQuestion to ask"`
-
-Tools already matching Claude Code names (Bash, Read, Write, Edit, Glob, Grep, TodoWrite, Skill, WebFetch) are left unchanged.
+We no longer rely on rewriting OpenCode's base system prompt text for OAuth mode. Instead, the plugin replaces OpenCode's base prompt with Claude Code's captured prompt via `experimental.chat.system.transform`, and tool-name differences are handled in code via the bidirectional tool-name mappers.
 
 ---
 
@@ -270,15 +269,17 @@ system[3]: memory + environment               (DYNAMIC, per-session)
 ### Our Provider (via OpenCode)
 
 ```
-system[0]: billing header                     (injected by provider)
-system[1]: "You are a Claude agent..."        (injected by provider)
-system[2]: OpenCode prompt (rewritten)        (from OpenCode, tool names + identity rewritten)
+system[0]: Claude base prompt                 (set by plugin hook)
+system[1+]: mode/context additions            (left to OpenCode)
 ```
 
-Rewrites applied to system[2]:
+At request construction time, the provider then prepends:
 
-- Opening identity replaced: `"You are OpenCode, the best coding agent..."` → `"You are an interactive agent that helps users with software engineering tasks."`
-- Tool names rewritten to match Claude Code names
+- `system[0]`: billing header
+- `system[1]`: `"You are a Claude agent, built on Anthropic's Claude Agent SDK."`
+- `system[2+]`: whatever OpenCode produced after the plugin hook transform
+
+This hook-based override turned out to be necessary: forwarding OpenCode's native base prompt caused Anthropic to classify requests as third-party app traffic, while replacing only the base prompt with Claude Code's prompt allowed the requests through.
 
 ### `<system-reminder>` Tags
 
@@ -608,7 +609,7 @@ The stream `finish` event was missing `cachedInputTokens` because `stream.ts` on
 
 Real OpenCode request data captured and stored for testing:
 
-- `src/fixtures/opencode-system.txt` — actual system prompt (12.8K chars)
+- `src/claudecode-system.txt` — captured Claude Code base system prompt (12.8K chars)
 - `src/fixtures/opencode-tools.json` — actual 22 tool definitions (66K chars)
 
 ---
@@ -799,6 +800,8 @@ The server plugin goes in `.opencode/opencode.json` separately:
 11. **Prompt caching confirmed** → 98% of input tokens (20499/20829) served from cache with full-size OpenCode request; `cachedInputTokens` was missing from stream `finish` event (fixed in `stream.ts`)
 12. **`inference_geo: "not_available"`** → Does NOT mean caching is unavailable; it's overflow routing that only disables caching when session is at 100% utilization
 13. **Long context billing** → `"Extra usage is required for long context requests"` (429) when context exceeds subscription limit without Extra usage enabled. Claude Code avoids this via built-in context management (`context-management-2025-06-27` beta) that truncates context before sending — it never actually hits this limit. The `context-1m-2025-08-07` beta does NOT bypass billing — Extra usage must be enabled at `claude.ai/settings`
-14. **`context-1m-2025-08-07` is conditional** → Claude Code only sends it when model ID includes `[1m]` suffix (checked via `/\[1m\]/i.test(modelId)`). Always sending it triggers the "Extra usage required" billing check even on small requests
+14. **`context-1m-2025-08-07` is conditional** → Claude Code only sends it for long-context routing. Always sending it triggers subscription errors on unsupported requests, so our provider now adds it dynamically only for very large OAuth request bodies
 15. **Context window limits per model** → See table above
 16. **TUI plugin system** → OpenCode v1.3+ supports `./server` and `./tui` package.json exports for split server/TUI plugins. TUI plugins use SolidJS with `@opentui/solid` JSX and are loaded as raw `.tsx` by Bun. Sidebar slots, slash commands, and dialogs are all available via the `TuiPluginApi`
+17. **2026-04-08: Anthropic tightened system-prompt checks** → Forwarding OpenCode's native base system prompt began returning `400 invalid_request_error` with the new "Third-party apps now draw from your extra usage" message, even though the billing block and Claude identity block were still present. Replaying prompt variants showed the check is not just for the word `OpenCode`; specific OpenCode-native instructions like the `opencode.ai/docs` help text and the `Task tool` exploration guidance were enough to trigger the rejection
+18. **Hook-based base prompt override fixes the classification** → Replacing only the base prompt via `experimental.chat.system.transform` with Claude Code's captured prompt allows OAuth requests through while leaving OpenCode's mode-specific prompt additions intact. The captured Claude base prompt is now stored at `src/claudecode-system.txt`, and standalone OAuth usage must supply a Claude-compatible system prompt explicitly

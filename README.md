@@ -27,6 +27,8 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 
 That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
+In OpenCode, the plugin also replaces the default base system prompt with a Claude-compatible one via `experimental.chat.system.transform`. This is required for Claude Code OAuth requests to be treated as Claude-native rather than third-party app requests.
+
 Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
 
 ### TUI Plugin (sidebar + /usage command)
@@ -134,18 +136,24 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 The plugin also works as a standalone Vercel AI SDK provider:
 
 ```typescript
-import { createAnthropicSDK } from "@xtruder/opencode-claude-max-plugin"
+import { CLAUDE_CODE_SYSTEM_PROMPT, createAnthropicSDK } from "@xtruder/opencode-claude-max-plugin"
 import { streamText } from "ai"
 
 // Uses ~/.claude/.credentials.json automatically
 const provider = createAnthropicSDK()
 const model = provider.languageModel("claude-sonnet-4-6")
 
-const result = streamText({ model, prompt: "Hello!" })
+const result = streamText({
+  model,
+  system: CLAUDE_CODE_SYSTEM_PROMPT,
+  prompt: "Hello!",
+})
 for await (const chunk of result.textStream) {
   process.stdout.write(chunk)
 }
 ```
+
+When using Claude Code OAuth credentials outside OpenCode, you must pass a Claude-compatible system prompt yourself. Exported `CLAUDE_CODE_SYSTEM_PROMPT` is the prompt used by the OpenCode plugin hook.
 
 ## Development
 

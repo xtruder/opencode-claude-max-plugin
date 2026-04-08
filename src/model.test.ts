@@ -468,10 +468,7 @@ describe("prompt caching", () => {
 
   test("cache hits with full-size OpenCode-like prompt", async () => {
     // Use the real captured OpenCode system prompt and tools from fixtures.
-    const systemPrompt = readFileSync(
-      new URL("./fixtures/opencode-system.txt", import.meta.url),
-      "utf-8",
-    )
+    const systemPrompt = readFileSync(new URL("./claudecode-system.txt", import.meta.url), "utf-8")
     const realTools = JSON.parse(
       readFileSync(new URL("./fixtures/opencode-tools.json", import.meta.url), "utf-8"),
     ) as Array<{ name: string; description: string; input_schema: any }>

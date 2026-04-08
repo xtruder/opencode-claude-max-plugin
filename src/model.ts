@@ -13,7 +13,7 @@ import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 import { createHash, randomBytes } from "node:crypto"
 import { convertPrompt } from "./prompt.ts"
 import { convertStream } from "./stream.ts"
-import { rewriteToolNamesInText, toOpencodeToolName } from "./tool-names.ts"
+import { toOpencodeToolName } from "./tool-names.ts"
 import { convertToolChoice, convertTools } from "./tools.ts"
 
 type DoGenerateResult = LanguageModelV3GenerateResult
@@ -192,18 +192,16 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     // The ttl/scope fields require the prompt-caching-scope-2026-01-05 beta and OAuth routing.
 
     if (this.isOAuth) {
-      const rewrite = (s: string) => rewriteToolNamesInText(s)
       const SYSTEM_CACHE: Record<string, any> = { type: "ephemeral", ttl: "1h", scope: "global" }
       if (system) {
         const contentBlocks =
           typeof system === "string"
-            ? [{ type: "text" as const, text: rewrite(system), cache_control: SYSTEM_CACHE }]
+            ? [{ type: "text" as const, text: system, cache_control: SYSTEM_CACHE }]
             : Array.isArray(system)
               ? system.map((b: any, i: number) =>
                   b.type === "text"
                     ? {
                         ...b,
-                        text: rewrite(b.text),
                         ...(i === system.length - 1 ? { cache_control: SYSTEM_CACHE } : {}),
                       }
                     : b,
