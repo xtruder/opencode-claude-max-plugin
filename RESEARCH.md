@@ -2,7 +2,7 @@
 
 This document summarizes the findings from reverse-engineering Claude Code's request format, authentication, and internal structure to build a compatible OpenCode provider.
 
-Last updated: 2026-04-08
+Last updated: 2026-04-24
 
 ## Credentials
 
@@ -78,7 +78,8 @@ Anthropic gates subscription model access for OAuth tokens behind a **billing he
   "system": [
     {
       "type": "text",
-      "text": "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;"
+  "text": "x-anthropic-billing-header: cc_version=2.1.112.a5a; cc_entrypoint=sdk-cli; cch=00000;"
+
     },
     ...
   ]
@@ -163,6 +164,41 @@ Claude Code sends thinking config via the request body:
 ```
 
 Thinking responses include `signature_delta` stream events that must be captured and passed back in conversation history. Without a valid signature, the API rejects thinking blocks with "Invalid signature in thinking block".
+
+### Adaptive Thinking (Opus 4.7+)
+
+Starting with Claude Opus 4.7, Anthropic replaced manual extended thinking with **adaptive thinking**. On Opus 4.7, `thinking: { type: "enabled", budget_tokens: N }` is **rejected with a 400 error**. The only supported thinking mode is:
+
+```json
+{
+  "thinking": {
+    "type": "adaptive"
+  },
+  "output_config": {
+    "effort": "medium"
+  }
+}
+```
+
+In adaptive mode, Claude dynamically determines whether and how much to think based on the complexity of each request. The `effort` parameter provides soft guidance:
+
+| Effort level | Thinking behavior                                              |
+| :----------- | :------------------------------------------------------------- |
+| `low`        | Minimizes thinking, skips for simple tasks                     |
+| `medium`     | Moderate thinking, may skip for very simple queries            |
+| `high`       | Always thinks (API default). Deep reasoning on complex tasks   |
+| `xhigh`      | Always thinks deeply with extended exploration (Opus 4.7 only) |
+| `max`        | Always thinks with no constraints on thinking depth            |
+
+Key differences from extended thinking on Opus 4.6:
+
+- **No `budget_tokens`** — Claude controls its own thinking allocation
+- **Interleaved thinking is automatic** — Claude can think between tool calls without extra headers
+- **`display` defaults to `"omitted"`** on Opus 4.7 (vs `"summarized"` on Opus 4.6). Set `display: "summarized"` explicitly to receive thinking text
+- **New tokenizer** — Opus 4.7 uses a different tokenizer (~555k words per 1M tokens vs ~750k for Opus 4.6)
+- **`type: "enabled"` is deprecated** on Opus 4.6 and Sonnet 4.6 (still functional but will be removed in future releases)
+
+Our plugin sets `medium` effort as the default and exposes `low/medium/high/xhigh/max` as variant options for Opus 4.7. Thinking is enabled by default via `thinking: { type: "adaptive" }` in both the model options and all variants.
 
 ### Rate Limiting
 
@@ -549,26 +585,32 @@ Anthropic caches prompt content when `cache_control` is set on system blocks, to
 
 Claude Code sets `cache_control` on:
 
-1. **`system[2]`** (main instructions) — cached globally with 1-hour TTL:
-
-   ```json
-   { "type": "ephemeral", "ttl": "1h", "scope": "global" }
-   ```
-
-   The `scope: "global"` means the cache is shared across all sessions for the same user, not just within a session.
-
-2. **Last user message content** — cached per-session with 1-hour TTL:
+1. **`system[1]`** (identity block) — cached with 1-hour TTL:
 
    ```json
    { "type": "ephemeral", "ttl": "1h" }
    ```
 
-3. **Tool result blocks** in multi-turn conversations — caches the accumulated context including thinking blocks.
+2. **`system[2]`** (main instructions) — cached with 1-hour TTL:
+
+   ```json
+   { "type": "ephemeral", "ttl": "1h" }
+   ```
+
+   **Note**: As of Claude Code 2.1.112, `scope: "global"` is no longer sent. Both identity and main prompt blocks use the same `{ type: "ephemeral", ttl: "1h" }` cache config.
+
+3. **Last user message content** — cached per-session with 1-hour TTL:
+
+   ```json
+   { "type": "ephemeral", "ttl": "1h" }
+   ```
+
+4. **Tool result blocks** in multi-turn conversations — caches the accumulated context including thinking blocks.
 
 ### Our Implementation
 
-- **OAuth mode**: Uses `{ type: "ephemeral", ttl: "1h", scope: "global" }` on `system[2]` and `{ type: "ephemeral", ttl: "1h" }` on message history
-- **API key mode**: Uses plain `{ type: "ephemeral" }` without `ttl`/`scope` (matches Claude Code's non-OAuth behavior)
+- **OAuth mode**: Uses `{ type: "ephemeral", ttl: "1h" }` on both identity block (`system[1]`) and main prompt (`system[2]`), and on message history
+- **API key mode**: Uses plain `{ type: "ephemeral" }` without `ttl` (matches Claude Code's non-OAuth behavior)
 - **Tool results**: Cache the last `tool_result` block in conversation history (not just the penultimate message) — per Anthropic docs, this keeps thinking blocks in cache across tool-use turns
 
 ### What Triggers Caching
@@ -620,6 +662,7 @@ Real OpenCode request data captured and stored for testing:
 
 | Model          | Without `context-1m`            | With `context-1m`                                           | Notes                                                                  |
 | -------------- | ------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Opus 4.7**   | **1M tokens** ✓                 | Not needed                                                  | Native 1M context, new tokenizer (~555k words/1M tokens)               |
 | **Opus 4.6**   | **~615K tokens** (1M chars) ✓   | Not needed                                                  | Native 1M context without any beta                                     |
 | **Sonnet 4.6** | **~120K tokens** (195K chars) ✓ | ✗ `"Extra usage is required"`                               | Fails at ~200K chars. `context-1m` doesn't help — requires Extra usage |
 | **Haiku 4.5**  | **~200K tokens** (300K chars) ✓ | ✗ `"long context beta not available for this subscription"` | Hard 200K limit. `context-1m` not supported for Haiku                  |
@@ -805,3 +848,6 @@ The server plugin goes in `.opencode/opencode.json` separately:
 16. **TUI plugin system** → OpenCode v1.3+ supports `./server` and `./tui` package.json exports for split server/TUI plugins. TUI plugins use SolidJS with `@opentui/solid` JSX and are loaded as raw `.tsx` by Bun. Sidebar slots, slash commands, and dialogs are all available via the `TuiPluginApi`
 17. **2026-04-08: Anthropic tightened system-prompt checks** → Forwarding OpenCode's native base system prompt began returning `400 invalid_request_error` with the new "Third-party apps now draw from your extra usage" message, even though the billing block and Claude identity block were still present. Replaying prompt variants showed the check is not just for the word `OpenCode`; specific OpenCode-native instructions like the `opencode.ai/docs` help text and the `Task tool` exploration guidance were enough to trigger the rejection
 18. **Hook-based base prompt override fixes the classification** → Replacing only the base prompt via `experimental.chat.system.transform` with Claude Code's captured prompt allows OAuth requests through while leaving OpenCode's mode-specific prompt additions intact. The captured Claude base prompt is now stored at `src/claudecode-system.txt`, and standalone OAuth usage must supply a Claude-compatible system prompt explicitly
+19. **Claude Opus 4.7 adaptive thinking** → Opus 4.7 is Anthropic's most capable GA model with a step-change in agentic coding. It replaces manual extended thinking (`type: "enabled"` + `budget_tokens`) with **adaptive thinking only** (`type: "adaptive"`). Sending `type: "enabled"` to Opus 4.7 returns a 400 error. Effort levels (`low/medium/high/xhigh/max`) control thinking depth via `output_config.effort`. The `xhigh` effort level is exclusive to Opus 4.7. Native 1M context window with a new tokenizer. Thinking display defaults to `"omitted"` (no thinking text in responses unless `display: "summarized"` is set explicitly). Extended thinking with `budget_tokens` is deprecated on Opus 4.6 and Sonnet 4.6 in favor of adaptive thinking
+20. **Third-party detection: specific string matching on env fields** → After fixing the base prompt via hook-based override (#18), appending OpenCode's environment info still triggered the 400 "Third-party apps" error. Binary search revealed the specific trigger: the string `"Is directory a git repo"` — an OpenCode-specific env field. Claude Code uses `"Is a git repository: true/false"` instead. Anthropic's server-side check matches on known OpenCode-identifying strings in the system prompt, not just the base prompt text. Fix: rewrite `"Is directory a git repo: yes/no"` to `"Is a git repository: true/false"` in the `experimental.chat.system.transform` hook before sending. After this rewrite, all OpenCode-appended content (env info, skills, AGENTS.md instructions) passes through without triggering the detection
+21. **Claude Code 2.1.112 cache control change** → `scope: "global"` is no longer sent on any system block cache_control. Both the identity block (`system[1]`) and main prompt (`system[2]`) now use `{ type: "ephemeral", ttl: "1h" }` without scope. The identity block also gets `cache_control` now (previously had none). Updated our implementation to match

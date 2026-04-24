@@ -91,7 +91,7 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;",
+  text: "x-anthropic-billing-header: cc_version=2.1.112.a5a; cc_entrypoint=sdk-cli; cch=00000;",
 }
 
 /**
@@ -179,10 +179,10 @@ export class AnthropicSDKModel implements LanguageModelV3 {
 
     // Build system blocks and apply cache_control matching Claude Code's pattern:
     //
-    // OAuth (subscription) mode:
+    // OAuth (subscription) mode (Claude Code 2.1.112):
     //   system[0]: billing header         (no cache)
-    //   system[1]: identity block         (no cache)
-    //   system[2]: main prompt            cache_control: { type: "ephemeral", ttl: "1h", scope: "global" }
+    //   system[1]: identity block         cache_control: { type: "ephemeral", ttl: "1h" }
+    //   system[2]: main prompt            cache_control: { type: "ephemeral", ttl: "1h" }
     //
     // API key mode (matches Claude Code with --api-key):
     //   system[0]: identity block         cache_control: { type: "ephemeral" }
@@ -192,7 +192,8 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     // The ttl/scope fields require the prompt-caching-scope-2026-01-05 beta and OAuth routing.
 
     if (this.isOAuth) {
-      const SYSTEM_CACHE: Record<string, any> = { type: "ephemeral", ttl: "1h", scope: "global" }
+      const SYSTEM_CACHE: Record<string, any> = { type: "ephemeral", ttl: "1h" }
+      const IDENTITY_WITH_CACHE = { ...IDENTITY_SYSTEM_BLOCK, cache_control: SYSTEM_CACHE }
       if (system) {
         const contentBlocks =
           typeof system === "string"
@@ -207,9 +208,9 @@ export class AnthropicSDKModel implements LanguageModelV3 {
                     : b,
                 )
               : [{ ...(system as object), cache_control: SYSTEM_CACHE }]
-        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK, ...contentBlocks]
+        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_WITH_CACHE, ...contentBlocks]
       } else {
-        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_SYSTEM_BLOCK]
+        params.system = [BILLING_SYSTEM_BLOCK, IDENTITY_WITH_CACHE]
       }
 
       // Claude Code always sends metadata with user_id
@@ -319,10 +320,10 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       // Handle thinking config — map AI SDK format to Anthropic SDK format
       if (anthropicOptions.thinking) {
         const t = anthropicOptions.thinking
-        if (t.type === "enabled" && t.budgetTokens) {
+        if (t.type === "adaptive") {
+          params.thinking = { type: "adaptive" }
+        } else if (t.type === "enabled" && t.budgetTokens) {
           params.thinking = { type: "enabled", budget_tokens: t.budgetTokens }
-        } else if (t.type === "adaptive") {
-          params.thinking = { type: "enabled", budget_tokens: 10000 }
         } else {
           params.thinking = t
         }
@@ -342,7 +343,8 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     // This matches Claude Code's getAPIContextManagement() for non-ant users.
     if (this.isOAuth && supportsContextManagement(this.apiModelId)) {
       const edits: any[] = []
-      const hasThinking = params.thinking?.type === "enabled"
+      const hasThinking =
+        params.thinking?.type === "enabled" || params.thinking?.type === "adaptive"
       if (hasThinking) {
         edits.push({
           type: "clear_thinking_20251015",

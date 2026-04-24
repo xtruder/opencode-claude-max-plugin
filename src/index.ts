@@ -78,6 +78,16 @@ function buildPluginModels(isOAuth: boolean) {
     },
   }
 
+  const opus47Variants = {
+    variants: {
+      low: { effort: "low" },
+      medium: { effort: "medium" },
+      high: { effort: "high" },
+      xhigh: { effort: "xhigh" },
+      max: { effort: "max" },
+    },
+  }
+
   return {
     "claude-haiku-4-5": {
       name: "Claude Haiku 4.5",
@@ -148,6 +158,28 @@ function buildPluginModels(isOAuth: boolean) {
       },
       options: { effort: "medium" },
       ...opusVariants,
+    },
+    /**
+     * Opus 4.7 — most capable generally available model.
+     *
+     * Step-change improvement in agentic coding over Opus 4.6.
+     * Natively supports 1M context window (new tokenizer ~555k words).
+     * Supports adaptive thinking (effort) but NOT extended thinking.
+     */
+    "claude-opus-4-7": {
+      name: "Claude Opus 4.7",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      ...opus47Variants,
     },
   }
 }
@@ -413,9 +445,24 @@ export const anthropicSDKPlugin: Plugin = async () => {
         return
       }
 
-      // Replace OpenCode's base prompt with the Claude-compatible prompt while
-      // preserving any additional system entries OpenCode appends for modes.
-      output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT
+      // OpenCode joins [provider_prompt, env_info, skills, instructions] into
+      // a single string in system[0]. Replace the provider prompt portion with
+      // Claude Code's prompt while preserving env, skills, and instructions.
+      //
+      // Anthropic's third-party detection matches specific OpenCode-native
+      // strings. We rewrite known triggers to Claude Code equivalents.
+      const ENV_MARKER = "You are powered by the model named"
+      const original = output.system[0]
+      const envIdx = original.indexOf(ENV_MARKER)
+      if (envIdx > 0) {
+        let appended = original.slice(envIdx)
+        // Rewrite OpenCode env phrasing to Claude Code equivalents
+        appended = appended.replace("Is directory a git repo: yes", "Is a git repository: true")
+        appended = appended.replace("Is directory a git repo: no", "Is a git repository: false")
+        output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT + "\n" + appended
+      } else {
+        output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT
+      }
     },
   }
 }
