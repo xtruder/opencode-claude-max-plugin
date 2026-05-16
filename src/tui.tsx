@@ -360,7 +360,7 @@ const tui: TuiPlugin = async (api, options) => {
   api.lifecycle.onDispose(offEvent)
 
   // Register /usage command
-  api.command.register(() => [
+  api.command?.register(() => [
     {
       title: "Claude subscription usage",
       value: "anthropic-sdk.usage",
