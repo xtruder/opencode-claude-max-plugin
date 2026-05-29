@@ -8,6 +8,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: npm-publish # gates NPM_TOKEN to tags on main (configured in repo settings)
     permissions:
       contents: write # for creating GitHub releases
 
