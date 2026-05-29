@@ -446,50 +446,22 @@ grep -oP 'output_config.{0,100}' cli.js
 
 ## Request Interception Methodology
 
-### Intercepting Claude Code
+Both Claude Code and OpenCode honor `ANTHROPIC_BASE_URL`, so a local HTTP forwarding proxy can intercept and log every request/response. We use the bundled `scripts/cache-proxy.ts` for this — invocation in AGENTS.md. The proxy logs per-request `cache_control` placement and per-response token usage (input/output/cache_read/cache_write), and can optionally dump request and response bodies for byte-diff analysis across turns.
 
-We used `ANTHROPIC_BASE_URL` to redirect Claude Code through a local HTTP proxy:
+Three things make the implementation less trivial than a naive forwarder:
 
-```typescript
-import * as http from "http"
+1. **Streaming.** Claude Code sends `stream: true` for every inference call. A naive `await resp.text()` buffers the entire response, freezing the client until the model finishes. The proxy pipes upstream chunks straight to the response writer as they arrive, tee-ing them into an in-memory buffer for end-of-response parsing.
 
-const server = http.createServer(async (req, res) => {
-  let body = ""
-  req.on("data", (d) => (body += d))
-  req.on("end", async () => {
-    // Log headers and body
-    console.log("Headers:", JSON.stringify(req.headers))
-    console.log("Body:", body)
+2. **Response headers.** Three upstream headers must be stripped or the client gets garbage:
+   - `content-encoding` — upstream body is already decoded by `fetch()`; relaying the header would make the client double-decode and crash.
+   - `content-length` — wrong after re-encoding; meaningless for chunked streams.
+   - `transfer-encoding` — Node's `http` server adds its own framing.
 
-    // Forward to real API
-    const resp = await fetch("https://api.anthropic.com" + req.url, {
-      method: req.method,
-      headers: Object.fromEntries(
-        Object.entries(req.headers).filter(([k]) => k !== "host" && k !== "connection"),
-      ),
-      body,
-    })
-    const respText = await resp.text()
-    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()))
-    res.end(respText)
-  })
-})
-server.listen(19827)
-```
+3. **Usage fields are split across two SSE events**, not emitted in one final block:
+   - `message_start` carries `input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (cache-hit accounting; stable for the whole response).
+   - `message_delta` carries `output_tokens` incrementally; the final delta has the total.
 
-Then run:
-
-```bash
-ANTHROPIC_BASE_URL=http://localhost:19827 echo "Say OK" | claude --model opus -p
-```
-
-### Intercepting OpenCode
-
-Same proxy approach:
-
-```bash
-ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-opus-4-6" "Say OK"
-```
+   Reading only the first event misses `output_tokens`; reading only the last misses cache stats. The proxy walks every `data:` line and merges, taking the latest non-null value per field. This is the same shape as the `cachedInputTokens` bug fixed in `stream.ts` — reading `input_tokens` from `message_start` but ignoring `cache_read_input_tokens` from the same event left the AI SDK `finish` event without cache stats.
 
 ### Intercepting SDK Requests
 
