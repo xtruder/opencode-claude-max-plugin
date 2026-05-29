@@ -5,3 +5,4 @@ opencode-ref/
 bun.lock
 .opencode/opencode.json
 .opencode/tui.json
+proxy.pid

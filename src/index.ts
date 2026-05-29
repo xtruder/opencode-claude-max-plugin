@@ -2,30 +2,58 @@ import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 import Anthropic from "@anthropic-ai/sdk"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
+import CLAUDE_OPUS48_SYSTEM_PROMPT from "./claudecode-system-opus48.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
 import { AnthropicSDKModel } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
 export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
+export const CLAUDE_CODE_OPUS48_SYSTEM_PROMPT = CLAUDE_OPUS48_SYSTEM_PROMPT
+
+/**
+ * Select the Claude Code system prompt that matches the given model.
+ *
+ * Claude Code 2.1.154 ships per-model prompts: Opus 4.8 gets a condensed
+ * ~6KB "Harness" prompt that trusts the model's defaults; everything else
+ * (Opus 4.7, Sonnet 4.6, Haiku 4.5, Opus 4.6) gets the long-form ~11KB
+ * prompt with explicit behavior rules.
+ */
+export function selectClaudePromptForModel(modelId: string): string {
+  if (modelId.includes("opus-4-8")) return CLAUDE_OPUS48_SYSTEM_PROMPT
+  return CLAUDE_MAIN_SYSTEM_PROMPT
+}
 
 /**
  * Claude Code CLI version to impersonate.
  * Used in user-agent, billing header, and x-stainless-package-version.
  */
-const CLAUDE_CODE_VERSION = "2.1.81"
+const CLAUDE_CODE_VERSION = "2.1.154"
 
 /**
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
+ *
+ * Captured from Claude Code 2.1.154 (2026-05-28):
+ *   - thinking-token-count-2026-05-13: estimated_tokens in thinking_delta
+ *     stream events (progress hint when display="omitted")
+ *   - advisor-tool-2026-03-01: server-side advisor_20260301 tool
+ *   - extended-cache-ttl-2025-04-11: ttl:"1h" on cache_control blocks
+ *
+ * Model-conditional flags (added in wrappedFetch based on request body):
+ *   - mid-conversation-system-2026-04-07: Opus 4.8 only — allows role:"system"
+ *     messages in messages[] after user turns
+ *   - effort-2025-11-24: Opus/Sonnet only — Haiku does not support effort
  */
 const OAUTH_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
+  "thinking-token-count-2026-05-13",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
-  "effort-2025-11-24",
+  "advisor-tool-2026-03-01",
+  "extended-cache-ttl-2025-04-11",
 ]
 
 /**
@@ -181,6 +209,29 @@ function buildPluginModels(isOAuth: boolean) {
       options: { effort: "medium" },
       ...opus47Variants,
     },
+    /**
+     * Opus 4.8 — Anthropic's most capable generally available model (released 2026-05-28).
+     *
+     * Builds on Opus 4.7 with improvements across coding, agentic, and reasoning benchmarks.
+     * Natively supports 1M context window with no beta header. Same pricing as 4.7 ($5/$25 per MTok).
+     * Supports adaptive thinking (effort levels low/medium/high/xhigh/max) but NOT extended thinking.
+     * Lower 1,024-token minimum cacheable prompt length (vs higher on 4.7).
+     */
+    "claude-opus-4-8": {
+      name: "Claude Opus 4.8",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      ...opus47Variants,
+    },
   }
 }
 
@@ -286,7 +337,7 @@ export function createAnthropicSDK(
     defaultHeaders["x-app"] = "cli"
     defaultHeaders["anthropic-dangerous-direct-browser-access"] = "true"
     // Override x-stainless version to match Claude Code's bundled SDK
-    defaultHeaders["x-stainless-package-version"] = "0.74.0"
+    defaultHeaders["x-stainless-package-version"] = "0.94.0"
   }
 
   const baseFetch = customFetch ?? globalThis.fetch
@@ -334,6 +385,25 @@ export function createAnthropicSDK(
       } else {
         const filtered = betas.filter((beta) => beta !== "context-1m-2025-08-07")
         if (filtered.length !== betas.length) betas.splice(0, betas.length, ...filtered)
+      }
+
+      // Model-conditional betas. Parsing the model from the body avoids passing
+      // model context through the SDK wrapper.
+      const modelMatch = init.body.match(/"model"\s*:\s*"([^"]+)"/)
+      const model = modelMatch?.[1] ?? ""
+
+      // effort-2025-11-24: required for Opus/Sonnet output_config.effort,
+      // rejected by Haiku (which does not support effort).
+      if (!model.includes("haiku")) {
+        if (!betas.includes("effort-2025-11-24")) betas.push("effort-2025-11-24")
+      }
+
+      // mid-conversation-system-2026-04-07: Opus 4.8+ only. Older models
+      // reject unknown beta flags, so only send when actually targeting 4.8+.
+      if (model.includes("opus-4-8")) {
+        if (!betas.includes("mid-conversation-system-2026-04-07")) {
+          betas.push("mid-conversation-system-2026-04-07")
+        }
       }
 
       reqHeaders.set("anthropic-beta", betas.join(","))
@@ -439,9 +509,12 @@ export const anthropicSDKPlugin: Plugin = async () => {
         ...cfg.provider[PROVIDER_ID],
       }
     },
-    "experimental.chat.system.transform": async (_input, output) => {
+    "experimental.chat.system.transform": async (input, output) => {
+      const modelId = input.model?.id ?? ""
+      const prompt = selectClaudePromptForModel(modelId)
+
       if (output.system.length === 0) {
-        output.system.push(CLAUDE_CODE_SYSTEM_PROMPT)
+        output.system.push(prompt)
         return
       }
 
@@ -459,9 +532,9 @@ export const anthropicSDKPlugin: Plugin = async () => {
         // Rewrite OpenCode env phrasing to Claude Code equivalents
         appended = appended.replace("Is directory a git repo: yes", "Is a git repository: true")
         appended = appended.replace("Is directory a git repo: no", "Is a git repository: false")
-        output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT + "\n" + appended
+        output.system[0] = prompt + "\n" + appended
       } else {
-        output.system[0] = CLAUDE_CODE_SYSTEM_PROMPT
+        output.system[0] = prompt
       }
     },
   }

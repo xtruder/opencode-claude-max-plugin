@@ -16,7 +16,6 @@
 import xxhashInit from "xxhash-wasm"
 
 const CCH_SEED = 0x6e52736ac806831en
-const CCH_PLACEHOLDER = "cch=00000"
 const CCH_MASK = 0xfffffn
 
 /** Lazy-initialized xxhash WASM instance */
@@ -39,15 +38,49 @@ export async function computeCch(body: string): Promise<string> {
   return (hash & CCH_MASK).toString(16).padStart(5, "0")
 }
 
+const BILLING_HEADER_PREFIX = "x-anthropic-billing-header:"
+
 /**
- * Replace the `cch=00000` placeholder in the body with the computed hash.
- * Only replaces the first occurrence to avoid mutating user message content.
+ * Replace `cch=00000` in the billing system block with the computed hash.
+ *
+ * Parses the body as JSON, locates the system block whose text starts with
+ * `x-anthropic-billing-header:`, replaces `cch=00000` inside that block's
+ * `text` field only, and re-serializes. Targeting the billing block at the
+ * JSON level avoids mutating other places the literal placeholder can appear:
+ * tool_result content (when Claude reads this repo's source), system[2] (when
+ * AGENTS.md / RESEARCH.md text gets spliced into the prompt), or user input.
+ * Any of those mutations would break prefix caching for the affected block
+ * across turns.
  */
 export function replaceCchPlaceholder(body: string, cch: string): string {
-  return body.replace(CCH_PLACEHOLDER, `cch=${cch}`)
+  let parsed: any
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  const system = parsed?.system
+  if (!Array.isArray(system)) return body
+  const block = system.find(
+    (b: any) => typeof b?.text === "string" && b.text.startsWith(BILLING_HEADER_PREFIX),
+  )
+  if (!block) return body
+  block.text = block.text.replace("cch=00000", `cch=${cch}`)
+  return JSON.stringify(parsed)
 }
 
-/** Check whether the body contains the CCH placeholder. */
+/** Check whether the body's billing system block contains the CCH placeholder. */
 export function hasCchPlaceholder(body: string): boolean {
-  return body.includes(CCH_PLACEHOLDER)
+  let parsed: any
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return false
+  }
+  const system = parsed?.system
+  if (!Array.isArray(system)) return false
+  const block = system.find(
+    (b: any) => typeof b?.text === "string" && b.text.startsWith(BILLING_HEADER_PREFIX),
+  )
+  return block?.text?.includes("cch=00000") ?? false
 }

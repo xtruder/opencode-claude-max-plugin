@@ -23,16 +23,26 @@ npx tsc --noEmit
 ### Run all tests
 
 ```bash
-bun run src/test.ts
-# or
-ANTHROPIC_API_KEY=sk-ant-... bun run src/test.ts
+bun test src/*.test.ts
+# or with API key
+ANTHROPIC_API_KEY=sk-ant-... bun test src/*.test.ts
 ```
 
-Tests run sequentially top-to-bottom. Requires either `ANTHROPIC_API_KEY` env var or valid `~/.claude/.credentials.json` from Claude Code.
+Tests use `bun:test` (`describe` / `test` / `expect`). Unit tests (CCH, credentials, factory) run without network. `model.test.ts` hits the real API and consumes OAuth quota — requires either `ANTHROPIC_API_KEY` env var or valid `~/.claude/.credentials.json` from Claude Code.
 
-### Run a single test
+### Run a single test or file
 
-There is no test runner with filtering. To run a single test, temporarily comment out the others or duplicate the specific `await test(...)` block at the bottom of `src/test.ts` and run the file. Tests are numbered with comments like `// ─── Test 5: ...`.
+```bash
+bun test src/cch.test.ts                          # one file
+bun test src/cch.test.ts -t "billing"             # filter by name pattern
+bun test src/*.test.ts --bail                     # stop at first failure
+```
+
+### Skip the API-hitting tests
+
+```bash
+bun test src/cch.test.ts src/credentials.test.ts src/index.test.ts   # unit only
+```
 
 ### Release
 
@@ -84,35 +94,102 @@ opencode run --print-logs --log-level DEBUG -m "anthropic-sdk/claude-haiku-4-5-2
 
 ### Intercept API requests (compare with Claude Code)
 
-Start a logging proxy, then run both tools through it:
+Use the bundled logging proxy at `scripts/cache-proxy.ts`. It forwards to `api.anthropic.com` while logging per-request `cache_control` placement and per-response token usage (input, output, cache_read, cache_write). Useful for diagnosing prompt-cache regressions.
 
 ```bash
-# Terminal 1: start proxy
-bun -e "
-import * as http from 'http';
-http.createServer(async (req, res) => {
-  let body = ''; req.on('data', d => body += d);
-  req.on('end', async () => {
-    const parsed = JSON.parse(body);
-    if (parsed.tools) console.log('tools:', parsed.tools.length, '| system blocks:', parsed.system?.length);
-    const resp = await fetch('https://api.anthropic.com' + req.url, {
-      method: req.method,
-      headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => k !== 'host')),
-      body,
-    });
-    const text = await resp.text();
-    res.writeHead(resp.status, Object.fromEntries(resp.headers.entries()));
-    res.end(text);
-  });
-}).listen(19827, () => console.log('Proxy on 19827'));
-"
+# Terminal 1: start proxy (defaults to :19827)
+bun scripts/cache-proxy.ts                       # summary only
+bun scripts/cache-proxy.ts -d                    # also dump request bodies
+bun scripts/cache-proxy.ts -d -D -p 9000         # dump request + response bodies on :9000
+bun scripts/cache-proxy.ts --help                # all options
+
+# If port is stuck from a previous run:
+fuser -k 19827/tcp                               # or: kill -9 $(lsof -ti :19827)
 
 # Terminal 2: run OpenCode through proxy
 ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
 
-# Terminal 2: compare with Claude Code (ANTHROPIC_BASE_URL is ignored by claude -p)
-echo "Say OK" | claude -p --output-format json | python3 -c "import json,sys; d=json.load(sys.stdin); print('cache_read:', d['usage']['cache_read_input_tokens'])"
+# Or run Claude Code through it (same env var)
+ANTHROPIC_BASE_URL=http://localhost:19827 claude
+
+# Inspect captures (with -d): byte-diff prefixes across consecutive turns to
+# track down what's mutating in the cached prefix
+python3 -c "
+import json
+def strip(o):
+    if isinstance(o, dict):
+        o.pop('cache_control', None)
+        for v in o.values(): strip(v)
+    elif isinstance(o, list):
+        for v in o: strip(v)
+a = json.load(open('/tmp/opencode/cache-proxy/req-001-claude-opus-4-7.json'))
+b = json.load(open('/tmp/opencode/cache-proxy/req-002-claude-opus-4-7.json'))
+strip(a); strip(b)
+sa = json.dumps({'system':a['system'],'tools':a['tools'],'messages':a['messages'][:5]}, sort_keys=True)
+sb = json.dumps({'system':b['system'],'tools':b['tools'],'messages':b['messages'][:5]}, sort_keys=True)
+i = next((k for k in range(min(len(sa),len(sb))) if sa[k]!=sb[k]), -1)
+print('first diff at', i, repr(sa[max(0,i-30):i+80]) if i>=0 else 'IDENTICAL')
+"
+
+# Quick per-turn cache summary across all captures:
+grep -E "REQ|RESP" /tmp/opencode/cache-proxy/proxy.log | grep -v "haiku\|429"
 ```
+
+### Continue or fork an existing OpenCode session from CLI
+
+`opencode run` supports session continuation without touching the TUI — useful for reproducing cache behavior on long sessions or running scripted multi-turn tests.
+
+```bash
+# Continue the last session (any model — model gets switched per invocation)
+opencode run -m "anthropic-sdk/claude-opus-4-8" -c "Just say OK"
+
+# Continue a specific session by id
+opencode run -m "anthropic-sdk/claude-opus-4-8" --session ses_XXXX "Just say OK"
+
+# Fork before continuing (creates a new session branched from the target)
+opencode run -m "anthropic-sdk/claude-opus-4-8" --session ses_XXXX --fork "Just say OK"
+
+# Pin a fresh session to a title (otherwise opencode auto-generates one)
+opencode run -m "anthropic-sdk/claude-opus-4-8" --title "cache-repro" "First message"
+```
+
+**Caveat**: continuing a session that contains coding history will often cause the model to keep coding. For pure cache-behavior tests, either fork a clean session ("capital of France" style) or send a very explicit no-op instruction like `"Just say OK and nothing else. Do not write any code or edit any files."`
+
+### Find sessions and inspect token usage in the OpenCode DB
+
+OpenCode stores sessions and messages in `~/.local/share/opencode/opencode.db` (SQLite). The schema is stable enough to query directly.
+
+```bash
+# List recent sessions (filter out auto-generated noise)
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 30" \
+  | grep -iv "new session\|confirmation\|agent ready\|agent setup"
+
+# Find a session by keyword in title
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 100" \
+  | grep -i "caching"
+
+# Check token usage (input/output/cache_read/cache_write) for the last N messages
+# of a specific session — useful to verify caching is actually hitting
+sqlite3 ~/.local/share/opencode/opencode.db \
+  "SELECT data FROM message WHERE session_id='ses_XXXX' AND data LIKE '%tokens%' ORDER BY time_created DESC LIMIT 10" \
+  | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        d = json.loads(line)
+        t = d.get('tokens', {})
+        c = t.get('cache', {})
+        print(f\"{d.get('providerID','?')}/{d.get('modelID','?')} input={t.get('input',0)} output={t.get('output',0)} cache_read={c.get('read',0)} cache_write={c.get('write',0)}\")
+    except: pass
+"
+
+# Healthy multi-turn pattern: cache_read grows ~monotonically across turns,
+# cache_write per turn is bounded by the new tail delta (hundreds–low thousands)
+```
+
+`message.data` is the JSON-serialized assistant/user message (role, content, providerID, modelID, tokens, etc.). `session.directory` is the workspace path the session was started from. Tables: `session`, `message`, `part`, `todo`, `permission`, `event`, `account`.
 
 ---
 
@@ -138,6 +215,11 @@ src/
 ├── claudecode-system.txt  # Captured Claude Code base system prompt
 └── fixtures/              # Captured OpenCode request data for caching tests
     └── opencode-tools.json
+
+scripts/
+├── dev-config.ts         # Generates .opencode/{opencode,tui}.json for local dev
+└── cache-proxy.ts        # Logging proxy for api.anthropic.com — used to debug
+                          # prompt-cache regressions (see "Intercept API requests")
 ```
 
 ---
@@ -153,6 +235,8 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 5. **Thinking signatures** from `signature_delta` stream events must be stored in `providerMetadata.anthropic.signature` and passed back in conversation history
 6. **`context-1m-2025-08-07` beta** is only added dynamically in the fetch wrapper when body exceeds 600K chars — never always-on (triggers billing check)
 7. **`anthropic-ratelimit-unified-status: over_limit`** is the authoritative signal for subscription exhaustion — do not match on error message text
+8. **Single cache breakpoint on `messages[-1].content[-1]`** for OAuth multi-turn cache to hit. Matches Claude Code's wire format. See "Prompt Caching" in RESEARCH.md
+9. **User message content must always be array-of-blocks**, never a plain string. Otherwise the same logical content gets different byte shapes turn-to-turn → cache miss
 
 ---
 
@@ -168,9 +252,8 @@ OAuth tokens use `Authorization: Bearer` with the `oauth-2025-04-20` beta. The b
 
 ## Testing Notes
 
-- Test 17 (prompt caching) is skipped when using an API key — requires OAuth credentials with caching-capable routing
-- Tests use `claude-haiku-4-5-20251001` by default (cheapest model)
-- Thinking tests (14-16) use `claude-sonnet-4-6` and require OAuth credentials
+- Integration tests use `claude-haiku-4-5-20251001` by default (cheapest model); thinking tests use `claude-sonnet-4-6`
+- Prompt-caching tests require OAuth credentials with caching-capable routing (skipped under API key)
 - Fixture files in `src/fixtures/` contain real captured OpenCode request data — don't modify them arbitrarily as the caching test depends on their size (~20K tokens)
 - The `assert()` helper throws on failure; the `test()` wrapper catches and records
 

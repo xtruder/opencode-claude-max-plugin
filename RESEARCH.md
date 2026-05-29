@@ -2,7 +2,7 @@
 
 This document summarizes the findings from reverse-engineering Claude Code's request format, authentication, and internal structure to build a compatible OpenCode provider.
 
-Last updated: 2026-04-24
+Last updated: 2026-05-29
 
 ## Credentials
 
@@ -78,7 +78,7 @@ Anthropic gates subscription model access for OAuth tokens behind a **billing he
   "system": [
     {
       "type": "text",
-  "text": "x-anthropic-billing-header: cc_version=2.1.112.a5a; cc_entrypoint=sdk-cli; cch=00000;"
+  "text": "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;"
 
     },
     ...
@@ -96,33 +96,43 @@ This was discovered by intercepting Claude Code's request via an HTTP proxy, the
 
 These are the exact headers Claude Code sends, in order of discovery importance:
 
-| Header                                      | Value                                   | Purpose                                  |
-| ------------------------------------------- | --------------------------------------- | ---------------------------------------- |
-| `authorization`                             | `Bearer sk-ant-oat01-...`               | OAuth authentication                     |
-| `anthropic-beta`                            | See below                               | Feature flags (order matters)            |
-| `anthropic-version`                         | `2023-06-01`                            | API version                              |
-| `user-agent`                                | `claude-cli/2.1.81 (external, sdk-cli)` | Client identification                    |
-| `x-app`                                     | `cli`                                   | Application type                         |
-| `anthropic-dangerous-direct-browser-access` | `true`                                  | Bypass browser restriction               |
-| `x-stainless-package-version`               | `0.74.0`                                | SDK version (Claude Code bundles 0.74.0) |
-| `content-type`                              | `application/json`                      | Standard                                 |
+| Header                                      | Value                                    | Purpose                                 |
+| ------------------------------------------- | ---------------------------------------- | --------------------------------------- |
+| `authorization`                             | `Bearer sk-ant-oat01-...`                | OAuth authentication                    |
+| `anthropic-beta`                            | See below                                | Feature flags (order matters)           |
+| `anthropic-version`                         | `2023-06-01`                             | API version                             |
+| `user-agent`                                | `claude-cli/2.1.154 (external, sdk-cli)` | Client identification                   |
+| `x-app`                                     | `cli`                                    | Application type                        |
+| `anthropic-dangerous-direct-browser-access` | `true`                                   | Bypass browser restriction              |
+| `x-stainless-package-version`               | `0.94.0`                                 | SDK version (CC 2.1.154 bundles 0.94.0) |
+| `content-type`                              | `application/json`                       | Standard                                |
 
 ### Beta Flags
 
-Claude Code sends these base beta flags on normal OAuth requests (order matches what we intercepted):
+Claude Code 2.1.154 sends these base beta flags on normal OAuth requests:
 
 ```
-claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24
+claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advisor-tool-2026-03-01,extended-cache-ttl-2025-04-11
 ```
 
-| Flag                              | Purpose                                        |
-| --------------------------------- | ---------------------------------------------- |
-| `claude-code-20250219`            | Claude Code feature gate                       |
-| `oauth-2025-04-20`                | Enables OAuth Bearer token authentication      |
-| `interleaved-thinking-2025-05-14` | Extended thinking / reasoning                  |
-| `context-management-2025-06-27`   | Context window management                      |
-| `prompt-caching-scope-2026-01-05` | Prompt caching with scope/TTL                  |
-| `effort-2025-11-24`               | Output effort control (`output_config.effort`) |
+| Flag                              | Purpose                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `claude-code-20250219`            | Claude Code feature gate                                                          |
+| `oauth-2025-04-20`                | Enables OAuth Bearer token authentication                                         |
+| `interleaved-thinking-2025-05-14` | Extended/adaptive thinking                                                        |
+| `thinking-token-count-2026-05-13` | `estimated_tokens` in `thinking_delta` stream events (progress hint when omitted) |
+| `context-management-2025-06-27`   | Context window management                                                         |
+| `prompt-caching-scope-2026-01-05` | Prompt caching with scope/TTL                                                     |
+| `advisor-tool-2026-03-01`         | Server-side `advisor_20260301` tool                                               |
+| `extended-cache-ttl-2025-04-11`   | Enables `ttl: "1h"` on cache_control blocks                                       |
+
+Model-conditional flags (added in `wrappedFetch` based on body model field):
+
+| Flag                                 | Models                        | Purpose                                             |
+| ------------------------------------ | ----------------------------- | --------------------------------------------------- |
+| `effort-2025-11-24`                  | Opus 4.x / Sonnet (NOT Haiku) | `output_config.effort`. Haiku rejects this flag     |
+| `mid-conversation-system-2026-04-07` | Opus 4.8 only                 | Allows `role: "system"` messages mid-conversation   |
+| `context-1m-2025-08-07`              | When body > 600K chars        | Long-context routing (only for very large requests) |
 
 The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model access — the billing system block is also required.
 
@@ -248,21 +258,29 @@ if (isSubscriptionLimit) {
 
 Claude Code uses PascalCase tool names. OpenCode uses snake_case. Our provider maps bidirectionally:
 
-| OpenCode     | Claude Code       | Notes                   |
-| ------------ | ----------------- | ----------------------- |
-| `task`       | `Agent`           | Different name entirely |
-| `question`   | `AskUserQuestion` | Different name entirely |
-| `plan_enter` | `EnterPlanMode`   | Different name entirely |
-| `plan_exit`  | `ExitPlanMode`    | Different name entirely |
-| `bash`       | `Bash`            | Case change             |
-| `read`       | `Read`            | Case change             |
-| `write`      | `Write`           | Case change             |
-| `edit`       | `Edit`            | Case change             |
-| `glob`       | `Glob`            | Case change             |
-| `grep`       | `Grep`            | Case change             |
-| `webfetch`   | `WebFetch`        | Case change             |
-| `todowrite`  | `TodoWrite`       | Case change             |
-| `skill`      | `Skill`           | Case change             |
+| OpenCode      | Claude Code       | Notes                                               |
+| ------------- | ----------------- | --------------------------------------------------- |
+| `task`        | `Agent`           | Different name entirely                             |
+| `question`    | `AskUserQuestion` | Different name entirely                             |
+| `plan_exit`   | `ExitPlanMode`    | Different name entirely                             |
+| `bash`        | `Bash`            | Case change                                         |
+| `read`        | `Read`            | Case change                                         |
+| `write`       | `Write`           | Case change                                         |
+| `edit`        | `Edit`            | Case change                                         |
+| `glob`        | `Glob`            | Case change                                         |
+| `grep`        | `Grep`            | Case change                                         |
+| `fetch`       | `WebFetch`        | OpenCode renamed `webfetch` → `fetch`               |
+| `search`      | `WebSearch`       | OpenCode renamed `websearch` → `search`             |
+| `todowrite`   | `TodoWrite`       | Case change                                         |
+| `skill`       | `Skill`           | Case change                                         |
+| `apply_patch` | `ApplyPatch`      | OpenCode-only (GPT models); CC dropped from 2.1.154 |
+| `lsp`         | `LSP`             | Both exist (experimental in both)                   |
+
+**OpenCode-only tools** (no CC equivalent — pass through unchanged): `repo_clone`, `repo_overview`, `invalid`, `plan_enter` (removed from OpenCode dev branch — only `plan_exit` remains).
+
+**CC-only tools** sent in 2.1.154 captures (no OpenCode equivalent): `CronCreate/Delete/List`, `EnterWorktree/ExitWorktree`, `Monitor`, `NotebookEdit`, `PushNotification`, `RemoteTrigger`, `ScheduleWakeup`, `Workflow`, `TaskCreate/Get/List/Update/Output/Stop` (mutually exclusive with `TodoWrite` — gated by `CLAUDE_CODE_ENABLE_TASKS=1`).
+
+Additional CC tools that exist but are flag-gated and didn't appear in our captures: `LSP`, `REPL`, `PowerShell`, `StructuredOutput`, `ListMcpResourcesTool`, `ReadMcpResourceTool`, `SendMessage`, `SendUserMessage`, `SendUserFile`, `TeamCreate/Delete`, `ShareOnboardingGuide`, `TestingPermission`. Most are gated by statsig flags or env vars (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, `CLAUDE_CODE_REPL`, `tengu_*` flags).
 
 ### MCP Tool Mapping
 
@@ -316,6 +334,26 @@ At request construction time, the provider then prepends:
 - `system[2+]`: whatever OpenCode produced after the plugin hook transform
 
 This hook-based override turned out to be necessary: forwarding OpenCode's native base prompt caused Anthropic to classify requests as third-party app traffic, while replacing only the base prompt with Claude Code's prompt allowed the requests through.
+
+### Per-Model System Prompts (CC 2.1.154)
+
+Starting with CC 2.1.154, Anthropic ships **different system prompts per model**:
+
+| Model                             | Prompt size | Structure                 | Tool mentions                                                                    |
+| --------------------------------- | ----------- | ------------------------- | -------------------------------------------------------------------------------- |
+| Opus 4.8                          | ~6.5KB      | `# Harness` (5 sections)  | Only `Skill`, `Bash`, `Write` (and only incidentally)                            |
+| Opus 4.7 / Sonnet 4.6 / Haiku 4.5 | ~27KB       | `# System` (15+ sections) | Explicit: `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `TaskCreate`, `Agent` |
+
+The Opus 4.7/Sonnet/Haiku prompts are byte-identical except for two lines (model identity + knowledge cutoff). Opus 4.8 got a complete rewrite with significantly less hand-holding.
+
+**Key insight**: Tool descriptions are NOT in the system prompt — they live in the `tools[]` array. The system prompt provides **behavior/style guidance**, while the model learns tool inventory and usage from each tool's `name` + `description` in `tools[]`. Opus 4.8's reduced prompt reflects Anthropic's confidence that the model can read tool descriptions and use good judgment without explicit "Prefer X over Y" rules baked into the prompt.
+
+**Our implementation** branches in `experimental.chat.system.transform` on `input.model.id`:
+
+- `claude-opus-4-8` → `claudecode-system-opus48.txt` (condensed)
+- All other models → `claudecode-system.txt` (long-form)
+
+Both files are scrubbed copies of the CC captures — Claude Code-specific bits removed (`/help`, `/code-review ultra`, `/ultrareview`, memory path, `TaskCreate` references). OpenCode tool names stay verbatim (Read, Edit, Bash, Grep, Glob, Write, Agent, Skill) since the existing bidirectional tool-name mapper handles them at the API layer.
 
 ### `<system-reminder>` Tags
 
@@ -577,51 +615,70 @@ However, we use the dedicated `/api/oauth/usage` endpoint instead since it works
 
 ## Prompt Caching
 
-### How It Works
+### Mental Model
 
-Anthropic caches prompt content when `cache_control` is set on system blocks, tool definitions, or messages. Cache hits return `cache_read_input_tokens > 0` in the usage response.
+Anthropic's prompt cache is a **server-side prefix cache** keyed on the hash of all bytes from the start of the request up to and including a `cache_control` breakpoint. The wire protocol carries the full prompt every request — nothing is uploaded separately. `cache_control` is just an annotation telling the server to hash and store the prefix at that point; on subsequent requests, the server matches incoming prefix hashes against stored entries and serves cached prefix tokens at ~0.1× input price instead of recomputing the prompt state.
+
+Each request's usage breaks down as:
+
+- `cache_read_input_tokens` — bytes of prefix served from a pre-existing cache entry (cheap, ~0.1× input).
+- `cache_creation_input_tokens` — bytes freshly stored under the new breakpoint's prefix hash, billed at ~1.25× input.
+- `input_tokens` — tokens that come after the matched cache entry (or all tokens if no hit).
+
+Sum of the three covers the entire prompt.
+
+Key rules (verified empirically via proxy capture against `api.anthropic.com`):
+
+1. **Cache writes happen only at breakpoints.** Marking block N writes exactly one entry — there is no incremental caching of blocks 0..N-1.
+2. **The lookback window from a breakpoint is 20 blocks.** Each turn must add fewer than 20 new content blocks for a growing conversation to hit the previous turn's write.
+3. **Up to 4 breakpoints per request.**
+4. **`cache_control` annotations are excluded from the prefix hash.** Moving the marker forward each turn does not poison the prefix — only block content matters.
+5. **Block content must be byte-stable across turns** for a prefix hash to match. Any byte change anywhere before the breakpoint produces a different hash → miss.
+6. **Cache writes cost 12.5× cache reads.** Re-writing a large prefix every turn (because it's not byte-stable) is much worse than not caching it at all.
 
 ### Claude Code's Cache Strategy
 
-Claude Code sets `cache_control` on:
+Confirmed by proxying real Claude Code 2.1.156 requests via `scripts/cache-proxy.ts`:
 
-1. **`system[1]`** (identity block) — cached with 1-hour TTL:
+1. **`system[1]`** (identity block) — `cache_control: { type: "ephemeral", ttl: "1h" }`
+2. **`system[2]`** (main instructions) — `cache_control: { type: "ephemeral", ttl: "1h" }`
+3. **`messages[-1].content[-1]`** (the very last content block of the very last message) — `cache_control: { type: "ephemeral", ttl: "1h" }`, **moved forward each turn**
 
-   ```json
-   { "type": "ephemeral", "ttl": "1h" }
-   ```
+That's it. **One** explicit message breakpoint per request, placed on the absolute tail, regardless of whether the tail is `text`, `tool_result`, or even an `assistant` block (the latter happens on Opus 4.8 with the `mid-conversation-system` beta). No top-level `cache_control`, no system[0] cache, no separate tool-result breakpoint.
 
-2. **`system[2]`** (main instructions) — cached with 1-hour TTL:
+Each turn writes a new cache entry covering the full prefix. The next turn's lookback walks back from its new tail breakpoint, finds the prior turn's entry within 20 blocks, and reads the entire accumulated history from cache.
 
-   ```json
-   { "type": "ephemeral", "ttl": "1h" }
-   ```
-
-   **Note**: As of Claude Code 2.1.112, `scope: "global"` is no longer sent. Both identity and main prompt blocks use the same `{ type: "ephemeral", ttl: "1h" }` cache config.
-
-3. **Last user message content** — cached per-session with 1-hour TTL:
-
-   ```json
-   { "type": "ephemeral", "ttl": "1h" }
-   ```
-
-4. **Tool result blocks** in multi-turn conversations — caches the accumulated context including thinking blocks.
+`system[0]` (the billing header) is **not** cached but is excluded from the cached-prefix hash even though its `cch=…` value differs per request (otherwise no Claude Code session would ever hit cache). Likely Anthropic excludes the billing block specifically.
 
 ### Our Implementation
 
-- **OAuth mode**: Uses `{ type: "ephemeral", ttl: "1h" }` on both identity block (`system[1]`) and main prompt (`system[2]`), and on message history
-- **API key mode**: Uses plain `{ type: "ephemeral" }` without `ttl` (matches Claude Code's non-OAuth behavior)
-- **Tool results**: Cache the last `tool_result` block in conversation history (not just the penultimate message) — per Anthropic docs, this keeps thinking blocks in cache across tool-use turns
+`src/model.ts` `placeMessageBreakpoints()` places a single `cache_control` on `messages[-1].content[-1]`. `system[1]` and `system[2]` keep their existing breakpoints. OAuth mode uses `{ type: "ephemeral", ttl: "1h" }`; API key mode uses plain `{ type: "ephemeral" }` without `ttl`.
 
-### What Triggers Caching
+### Verified Empirically (2026-05-29)
 
-Caching requires a **large enough prompt** to reach the infrastructure threshold. With the full OpenCode request (22 tools with detailed schemas + 12K char system prompt ≈ 80KB body, ~20K tokens), caching works reliably:
+Captured a real multi-turn session through the proxy and confirmed the chain works correctly: `cache_read` grows monotonically while `cache_write` per turn is bounded by the new content delta. From `ses_18d5c6509ffeCphU2gfvnMJfis` after the fix shipped mid-session:
 
-- **R1 (cold)**: `cache_creation_input_tokens: 20499, input_tokens: 330`
-- **R2 (warm)**: `cache_read_input_tokens: 20499, input_tokens: 330`
-- **Savings**: 98% of input tokens served from cache
+| Turn | Prefix size | cache_read | cache_write | % cached |
+| ---- | ----------- | ---------- | ----------- | -------- |
+| 149  | 204,523     | 204,121    | 401         | 99.8%    |
+| 151  | 210,697     | 210,009    | 682         | 99.7%    |
+| 153  | 212,084     | 211,711    | 367         | 99.8%    |
+| 156  | 217,503     | 216,394    | 1,103       | 99.5%    |
+| 159  | 219,770     | 219,003    | 761         | 99.7%    |
 
-With small isolated test prompts (<2K tokens), caching is not triggered.
+Cost ratio for turn 159 (Opus 4.7): ~$0.115 with caching vs ~$1.10 uncached — roughly a **10× reduction**.
+
+### Three Bugs We Fixed (2026-05-29)
+
+The previous implementation had three independent bugs that together made multi-turn caching collapse on tool-heavy sessions. Symptoms: `cache_read` stuck at ~16,410 tokens (just system+tools) for 130+ turns; `cache_write` growing past 187,000 tokens per turn — paying the 1.25× write premium to re-cache the entire accumulated conversation history every single turn.
+
+**Bug 1: `replaceCchPlaceholder` mutated the wrong `cch=00000` occurrence.** The old code used `body.replace("cch=00000", computed)`, which replaces the **first** occurrence. When an assistant turn read a file containing the literal `cch=00000` (e.g. `src/model.ts`, `src/cch.ts`, or any AGENTS.md/RESEARCH.md text spliced into the system prompt), the body had multiple occurrences: one inside `tool_result` content (file as read from disk), one inside `system[2]` (when docs mentioning the placeholder were appended), and one in `system[0]` (the actual billing placeholder). `.replace()` mutated whichever came first — never the billing block. The mutated content had a different `cch=<hash>` value every turn — breaking the prefix hash for any conversation containing such a file read. Fix: `src/cch.ts replaceCchPlaceholder` now parses the body as JSON, finds the system block whose text starts with `x-anthropic-billing-header:`, replaces `cch=00000` only within that block, and re-serializes. Robust against the placeholder appearing in user messages, tool results, or docs splices.
+
+**Bug 2: user-message content shape flipped between string and array.** `src/prompt.ts convertUserMessage` "simplified" single-text-block content to a plain string. The cache-breakpoint placer in `model.ts` normalizes the last user message to array-of-blocks form to attach `cache_control`. Result: when a user message was last it was an array; on the next turn it became mid-history and reverted to a string. Same content, different byte shape → prefix hash for everything after that message changed. Fix: removed the simplification; always emit `content: [...blocks]`.
+
+**Bug 3: wrong caching strategy in `model.ts`.** Earlier attempts placed `cache_control` on the last tool_result (changes every turn, poor hit rate), then on top-level automatic caching (worked for slow text-only conversations but missed in tool-heavy sessions). Fix: match Claude Code exactly — one explicit `cache_control` on `messages[-1].content[-1]`.
+
+Each fix is necessary; none alone is sufficient.
 
 ### `inference_geo` Field
 
@@ -708,7 +765,7 @@ The `cch=00000` placeholder is embedded in the billing system block (`src/model.
 ```json
 {
   "type": "text",
-  "text": "x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;"
+  "text": "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;"
 }
 ```
 
@@ -717,9 +774,11 @@ The `cch=00000` placeholder is embedded in the billing system block (`src/model.
 1. Build the complete request body JSON with `cch=00000` as a placeholder
 2. Compute `xxHash64(body_bytes, seed) & 0xFFFFF` (seed: `0x6E52736AC806831E`)
 3. Format as zero-padded 5-character lowercase hex
-4. Replace the first occurrence of `cch=00000` in the body with `cch=<computed>`
+4. Replace `cch=00000` **only inside the billing system block** with `cch=<computed>` — by parsing the body as JSON, locating the block in `system[]` whose text starts with `x-anthropic-billing-header:`, doing a single string replace inside that block's `text` field, and re-serializing.
 
 The hash covers the **entire serialized body** -- messages, tools, metadata, model, thinking config, everything. Modifying any field after hashing (swapping a session UUID, removing a tool, editing a tool description) causes a 400 rejection.
+
+**Why the targeted JSON replacement**: the literal string `cch=00000` can appear in many other places in the body — inside `tool_result` blocks when an assistant reads this repo's own source files (`src/cch.ts`, `src/model.ts`, …), inside `system[2]` when docs mentioning the placeholder verbatim are appended (AGENTS.md, RESEARCH.md), and potentially in user messages if someone pastes it in. Any naive string replace (`indexOf` / `lastIndexOf` / `replace()`) can be foiled by a single occurrence appearing in the "wrong" position relative to the billing block, mutating that content with a per-request hash and breaking prefix-cache hashes for the affected block every turn. JSON parsing + targeted field replacement is the only correct approach — see Discovery #25.
 
 ### Where we compute it
 
@@ -741,6 +800,33 @@ The implementation lives in `src/cch.ts` and uses `xxhash-wasm` (WebAssembly-bas
 ### Origin
 
 The mechanism was reverse-engineered from Claude Code's custom Bun binary. In the original Claude Code, the hash computation happens in Bun's native `nativeFetch` (compiled Zig code) -- the JavaScript only writes the `cch=00000` placeholder, and the runtime overwrites the zeros in the string buffer before sending. See: https://a10k.co/b/reverse-engineering-claude-code-cch.html
+
+### Verification against Claude Code 2.1.154 (2026-05-28)
+
+Cross-checked our implementation against intercepted CC 2.1.154 requests:
+
+| Body                  | CC sent | Our compute | Match |
+| --------------------- | ------- | ----------- | ----- |
+| Opus 4.7 prompt body  | `e7634` | `52890`     | ✗     |
+| Haiku 4.5 prompt body | `ae8fb` | `67674`     | ✗     |
+
+Hash divergence confirmed via two independent xxHash64 implementations (`xxhash-wasm` and Python `xxhash`), both producing the same `52890` / `67674` we compute. Verified:
+
+- ✓ Algorithm: xxHash64 with masked 20 LSBs (matches blog post + all 3 third-party impls we surveyed)
+- ✓ Seed: `0x6E52736AC806831E` (unchanged through CC 2.1.123 per third-party RE reports)
+- ✓ Hash input: full body bytes with `cch=00000` placeholder, compact JSON, original Stainless SDK key order
+- ✓ Output format: zero-padded 5-char lowercase hex
+- ✓ Body bytes captured at the proxy match CC's wire output
+
+Despite the mismatch, **our requests succeed** — Opus 4.7, Opus 4.8, and Haiku 4.5 all return 200 with full prompt-cache hits. The CCH gate only blocks premium features like fast mode (per the original research and Anthropic's documented error message). Plain `/v1/messages` calls accept any 5-char hex value.
+
+Possible causes (none confirmed):
+
+- CC 2.1.154 may modify body bytes between hash-time and wire-time in a way invisible to the proxy (e.g., a second post-hash placeholder we haven't identified)
+- Seed or algorithm tweaked in 2.1.154 (latest third-party RE only covers up to 2.1.123)
+- A pre-hash normalization step we don't replicate
+
+Not worth chasing unless we want to unlock fast mode — would require live LLDB instrumentation of CC's native binary. Tracking here in case it becomes relevant.
 
 ---
 
@@ -851,3 +937,7 @@ The server plugin goes in `.opencode/opencode.json` separately:
 19. **Claude Opus 4.7 adaptive thinking** → Opus 4.7 is Anthropic's most capable GA model with a step-change in agentic coding. It replaces manual extended thinking (`type: "enabled"` + `budget_tokens`) with **adaptive thinking only** (`type: "adaptive"`). Sending `type: "enabled"` to Opus 4.7 returns a 400 error. Effort levels (`low/medium/high/xhigh/max`) control thinking depth via `output_config.effort`. The `xhigh` effort level is exclusive to Opus 4.7. Native 1M context window with a new tokenizer. Thinking display defaults to `"omitted"` (no thinking text in responses unless `display: "summarized"` is set explicitly). Extended thinking with `budget_tokens` is deprecated on Opus 4.6 and Sonnet 4.6 in favor of adaptive thinking
 20. **Third-party detection: specific string matching on env fields** → After fixing the base prompt via hook-based override (#18), appending OpenCode's environment info still triggered the 400 "Third-party apps" error. Binary search revealed the specific trigger: the string `"Is directory a git repo"` — an OpenCode-specific env field. Claude Code uses `"Is a git repository: true/false"` instead. Anthropic's server-side check matches on known OpenCode-identifying strings in the system prompt, not just the base prompt text. Fix: rewrite `"Is directory a git repo: yes/no"` to `"Is a git repository: true/false"` in the `experimental.chat.system.transform` hook before sending. After this rewrite, all OpenCode-appended content (env info, skills, AGENTS.md instructions) passes through without triggering the detection
 21. **Claude Code 2.1.112 cache control change** → `scope: "global"` is no longer sent on any system block cache_control. Both the identity block (`system[1]`) and main prompt (`system[2]`) now use `{ type: "ephemeral", ttl: "1h" }` without scope. The identity block also gets `cache_control` now (previously had none). Updated our implementation to match
+22. **Claude Code 2.1.154 + Opus 4.8 (2026-05-28)** → New version bundles Anthropic SDK 0.94.0 (was 0.74.0). Beta flag set expanded: added `thinking-token-count-2026-05-13` (estimated tokens in thinking_delta stream events), `advisor-tool-2026-03-01` (server-side advisor tool), `extended-cache-ttl-2025-04-11` (1h cache TTL). For Opus 4.8 specifically, CC also sends `mid-conversation-system-2026-04-07` — allows `role: "system"` messages inside `messages[]` after user turns, useful for appending instructions late in a session without invalidating the system-prompt cache. Older models reject this beta, so we gate it conditionally on `model.includes("opus-4-8")`. `effort-2025-11-24` similarly excluded for Haiku (which rejects `output_config.effort`). The `cc_version` suffix is now `2.1.154.cea`. Opus 4.8 also got a completely rewritten, more condensed system prompt (~6KB "Harness" structure vs. ~11KB long-form on 4.7/Sonnet/Haiku) — they ship per-model now
+23. **CCH hash mismatch on CC 2.1.154** → Our xxHash64 impl produces different hashes than CC 2.1.154 sends, despite using the documented seed/algorithm and verifying against Python xxhash. Requests still succeed because `/v1/messages` does not enforce CCH for standard inference — only premium features (e.g. fast mode) gate on it. Algorithm divergence is invisible to a proxy. See "Verification against Claude Code 2.1.154" section above
+24. **2026-05-29: prompt-cache collapse in tool-heavy sessions** → Capturing both Claude Code and our plugin through `scripts/cache-proxy.ts` revealed three independent bugs that together stuck `cache_read` at the system+tools floor (~16K tokens) for an entire 130+ turn session while `cache_write` grew past 187K tokens per turn. (a) `replaceCchPlaceholder` used `body.replace(...)` which targets the first occurrence; when Claude read this repo's own source files (which contain the literal `cch=00000` token), the substitution mutated the tool_result content with a per-request hash instead of the billing block, making the cached prefix bytes differ every turn. (b) `convertUserMessage` simplified single-text content to a plain string, while the cache-breakpoint placer normalized it to array-of-blocks on the tail — same content, different byte shape on subsequent turns when it became mid-history. Fixed by always emitting array-of-blocks. (c) The previous breakpoint strategy (cache on last `tool_result`, then top-level automatic caching) didn't replicate what Claude Code actually does. Fixed by placing one explicit `cache_control` on `messages[-1].content[-1]` — exactly Claude Code's pattern. The initial fix for (a) was `lastIndexOf`, later replaced by JSON-targeted replacement — see Discovery #25
+25. **2026-05-29: `lastIndexOf` for CCH was still wrong, fixed properly with JSON parsing** → The `lastIndexOf` fix from Discovery #24 worked for tool_result-based regressions (messages come before system in JSON byte order, so the billing block was usually the last `cch=00000`). But it broke on a different case: when the system prompt itself contained the literal string (AGENTS.md and RESEARCH.md both mention `cch=00000` verbatim in their docs about how the placeholder works, and those docs get spliced into `system[2]`), `system[2]` serializes after `system[0]`, so `lastIndexOf` mutated the docs text in `system[2]` instead of the billing placeholder in `system[0]`. Symptom: long session with stable history still got 0% cache hit on the conversation prefix, while system[0] kept `cch=00000` unsigned. Replaced the string-based replacement with a JSON-aware one: parse the body, find the system block whose text starts with `x-anthropic-billing-header:`, replace inside that block's `text` only, re-serialize. Verified on `ses_18d5c6509ffeCphU2gfvnMJfis` (488-msg history): `cache_read` jumped from 19,857 (system+tools only) to 328,002 (full prefix) on the very next turn after deploying the fix. Three-model regression test confirms Sonnet 4.6, Opus 4.7, and Opus 4.8 all show monotonically-growing `cache_read` with bounded `cache_write` across multi-turn sessions

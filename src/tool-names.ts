@@ -9,29 +9,25 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 /**
- * All known OpenCode built-in tool names → Claude Code equivalents.
+ * Maps OpenCode built-in tool IDs to their Claude Code equivalents.
+ * Tools not in this map pass through unchanged (e.g. MCP tools, OpenCode-only
+ * tools like repo_clone/repo_overview that have no CC equivalent).
  */
 const BUILTIN_OPENCODE_TO_CLAUDE: Record<string, string> = {
   task: "Agent",
   question: "AskUserQuestion",
   plan_exit: "ExitPlanMode",
-  plan_enter: "EnterPlanMode",
   bash: "Bash",
   glob: "Glob",
   grep: "Grep",
   read: "Read",
   edit: "Edit",
   write: "Write",
-  webfetch: "WebFetch",
-  websearch: "WebSearch",
+  fetch: "WebFetch",
+  search: "WebSearch",
   todowrite: "TodoWrite",
-  todoread: "TodoRead",
   skill: "Skill",
-  multiedit: "MultiEdit",
-  list: "List",
   apply_patch: "ApplyPatch",
-  batch: "Batch",
-  codesearch: "CodeSearch",
   lsp: "LSP",
 }
 
@@ -191,8 +187,8 @@ const SYSTEM_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\buse\s+(?:the\s+)?glob\b/gi, "use the Glob"],
   [/\buse\s+(?:the\s+)?grep\b/gi, "use the Grep"],
   [/\buse\s+(?:the\s+)?skill\b/gi, "use the Skill"],
-  [/\buse\s+(?:the\s+)?webfetch\b/gi, "use the WebFetch"],
-  [/\buse\s+(?:the\s+)?websearch\b/gi, "use the WebSearch"],
+  [/\buse\s+(?:the\s+)?fetch\b/gi, "use the WebFetch"],
+  [/\buse\s+(?:the\s+)?search\b/gi, "use the WebSearch"],
   [/\buse\s+(?:the\s+)?todowrite\b/gi, "use the TodoWrite"],
 ]
 

@@ -66,46 +66,204 @@ describe("computeCch", () => {
 // ─── hasCchPlaceholder ──────────────────────────────────────────────────────
 
 describe("hasCchPlaceholder", () => {
-  test("returns true when body contains cch=00000", () => {
-    expect(hasCchPlaceholder('{"text":"cch=00000;"}')).toBe(true)
+  test("returns true when billing system block contains placeholder", () => {
+    const body =
+      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=sdk-cli; cch=00000;"}]}'
+    expect(hasCchPlaceholder(body)).toBe(true)
   })
 
-  test("returns false when body does not contain placeholder", () => {
-    expect(hasCchPlaceholder('{"text":"cch=a1b2c;"}')).toBe(false)
+  test("returns false when cch=00000 only appears in messages, not billing block", () => {
+    expect(hasCchPlaceholder('{"messages":[{"content":"cch=00000"}],"system":[]}')).toBe(false)
+  })
+
+  test("returns false when placeholder is not present", () => {
+    expect(
+      hasCchPlaceholder(
+        '{"system":[{"type":"text","text":"x-anthropic-billing-header: cch=a1b2c;"}]}',
+      ),
+    ).toBe(false)
   })
 
   test("returns false for empty string", () => {
     expect(hasCchPlaceholder("")).toBe(false)
-  })
-
-  test("returns true for realistic billing header", () => {
-    const body =
-      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"}]}'
-    expect(hasCchPlaceholder(body)).toBe(true)
   })
 })
 
 // ─── replaceCchPlaceholder ──────────────────────────────────────────────────
 
 describe("replaceCchPlaceholder", () => {
-  test("replaces cch=00000 with computed hash", () => {
-    const body = '{"text":"x-anthropic-billing-header: cch=00000;"}'
+  test("replaces cch=00000 in billing system block", () => {
+    const body =
+      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=00000;"}]}'
     const result = replaceCchPlaceholder(body, "a1b2c")
-    expect(result).toBe('{"text":"x-anthropic-billing-header: cch=a1b2c;"}')
+    expect(JSON.parse(result).system[0].text).toBe(
+      "x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=a1b2c;",
+    )
   })
 
-  test("only replaces the first occurrence", () => {
-    // Edge case: if user message somehow contains cch=00000, only the first
-    // (billing header) occurrence should be replaced
-    const body = '{"system":[{"text":"cch=00000;"}],"messages":[{"content":"cch=00000"}]}'
-    const result = replaceCchPlaceholder(body, "abcde")
-    expect(result).toBe('{"system":[{"text":"cch=abcde;"}],"messages":[{"content":"cch=00000"}]}')
+  test("does not replace cch=00000 in messages or other system blocks", () => {
+    const body =
+      '{"messages":[{"role":"user","content":[{"type":"tool_result","content":"cch=00000"}]}],' +
+      '"system":[' +
+      '{"type":"text","text":"x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=00000;"},' +
+      '{"type":"text","text":"docs mention cch=00000 verbatim"}' +
+      "]}"
+    const result = JSON.parse(replaceCchPlaceholder(body, "abcde"))
+    expect(result.system[0].text).toBe(
+      "x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=abcde;",
+    )
+    expect(result.system[1].text).toBe("docs mention cch=00000 verbatim")
+    expect(result.messages[0].content[0].content).toBe("cch=00000")
   })
 
-  test("returns unchanged body if placeholder not present", () => {
-    const body = '{"text":"no placeholder here"}'
+  test("returns unchanged body if billing block not present", () => {
+    const body = '{"system":[],"messages":[]}'
     const result = replaceCchPlaceholder(body, "a1b2c")
     expect(result).toBe(body)
+  })
+
+  // ─── Regression tests for prompt-cache bugs ──────────────────────────────
+  // These reproduce the exact byte-mutation scenarios that broke multi-turn
+  // prompt caching on real OpenCode sessions. See RESEARCH.md Discoveries
+  // #24 and #25. The contract is: across two consecutive turns where the
+  // only "real" change is appending a new user message, every byte before
+  // the billing block's `cch=` value MUST be identical — otherwise
+  // Anthropic's prefix-cache hash for the previous turn's write does not
+  // match, and cache_read collapses to 0 for the conversation history.
+
+  test("multi-turn: stored history bytes do not mutate across requests", async () => {
+    // This is THE bug from Discovery #24/#25. The model reads a file (or
+    // doc) containing the literal cch=00000 placeholder. On every later
+    // turn, the body is hashed again and the placeholder re-replaced.
+    // If replacement mutates anything outside the billing block, the
+    // stored history bytes diverge per turn → Anthropic's prefix-cache
+    // hash for the previous turn's write does not match → cache_read
+    // collapses to 0 for the conversation history.
+    const baseSystem = [
+      {
+        type: "text",
+        text: "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;",
+      },
+      { type: "text", text: "docs explain cch=00000 placeholder" },
+    ]
+    const sharedHistory = [
+      { role: "user", content: "Read src/cch.ts" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "Read", input: { file: "src/cch.ts" } }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: 'const PLACEHOLDER = "cch=00000"' },
+        ],
+      },
+    ]
+    const turn1 = JSON.stringify({ messages: sharedHistory, system: baseSystem })
+    const turn2 = JSON.stringify({
+      messages: [
+        ...sharedHistory,
+        { role: "assistant", content: "Here is the file." },
+        { role: "user", content: "thanks" },
+      ],
+      system: baseSystem,
+    })
+
+    const signed1 = JSON.parse(replaceCchPlaceholder(turn1, await computeCch(turn1)))
+    const signed2 = JSON.parse(replaceCchPlaceholder(turn2, await computeCch(turn2)))
+
+    // The shared message prefix must be byte-identical
+    for (let i = 0; i < sharedHistory.length; i++) {
+      expect(JSON.stringify(signed1.messages[i])).toBe(JSON.stringify(signed2.messages[i]))
+    }
+    // system[1] (docs containing cch=00000) must also stay identical
+    expect(signed1.system[1].text).toBe(signed2.system[1].text)
+    // And system[0] must have a real signed value (not the placeholder)
+    expect(signed1.system[0].text).not.toContain("cch=00000")
+    expect(signed2.system[0].text).not.toContain("cch=00000")
+  })
+
+  test("billing block is signed even when cch=00000 appears in user message", () => {
+    // Reproduces the case where a user pastes the literal placeholder in
+    // their prompt. The billing block must still get the computed hash;
+    // the user message must stay untouched.
+    const body = JSON.stringify({
+      messages: [{ role: "user", content: "Why does cch=00000 break caching?" }],
+      system: [
+        {
+          type: "text",
+          text: "x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=00000;",
+        },
+      ],
+    })
+    const result = JSON.parse(replaceCchPlaceholder(body, "abcde"))
+    expect(result.system[0].text).toContain("cch=abcde")
+    expect(result.messages[0].content).toBe("Why does cch=00000 break caching?")
+  })
+
+  test("billing block is signed even when cch=00000 appears LATE in body order (lastIndexOf trap)", () => {
+    // Reproduces Discovery #25: docs splice into system[2] containing
+    // `cch=00000` serializes AFTER system[0] in JSON byte order, so a
+    // naive lastIndexOf("cch=00000") would hit the docs occurrence and
+    // leave system[0] unsigned. JSON-targeted replacement must still
+    // find the billing block.
+    const body = JSON.stringify({
+      messages: [],
+      system: [
+        {
+          type: "text",
+          text: "x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=00000;",
+        },
+        { type: "text", text: "identity block" },
+        { type: "text", text: "RESEARCH.md says: replace cch=00000 with computed hash" },
+      ],
+    })
+    const result = JSON.parse(replaceCchPlaceholder(body, "abcde"))
+    expect(result.system[0].text).toContain("cch=abcde")
+    expect(result.system[2].text).toContain("cch=00000") // docs untouched
+  })
+
+  test("billing block is signed even when cch=00000 appears in many places", () => {
+    // Stress test: placeholder appears in 5+ locations. Only the billing
+    // block's occurrence must change.
+    const body = JSON.stringify({
+      messages: [
+        { role: "user", content: "cch=00000" },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t1",
+              content: "file content with cch=00000 in it",
+            },
+          ],
+        },
+        { role: "assistant", content: "discussion of cch=00000" },
+      ],
+      system: [
+        {
+          type: "text",
+          text: "x-anthropic-billing-header: cc_version=x; cc_entrypoint=sdk-cli; cch=00000;",
+        },
+        { type: "text", text: "more docs about cch=00000 and cch=00000 again" },
+      ],
+    })
+    const signed = replaceCchPlaceholder(body, "abcde")
+    const parsed = JSON.parse(signed)
+
+    // Billing block: signed
+    expect(parsed.system[0].text).toContain("cch=abcde")
+    expect(parsed.system[0].text).not.toContain("cch=00000")
+
+    // Everything else: untouched (cch=00000 still present where it was)
+    expect(parsed.messages[0].content).toBe("cch=00000")
+    expect(parsed.messages[1].content[0].content).toContain("cch=00000")
+    expect(parsed.messages[2].content).toContain("cch=00000")
+    expect(parsed.system[1].text).toContain("cch=00000 and cch=00000")
+
+    // And the only occurrence of cch=abcde in the whole body is the billing block
+    expect(signed.match(/cch=abcde/g)?.length).toBe(1)
   })
 })
 
@@ -133,7 +291,8 @@ describe("CCH end-to-end", () => {
     // This is a critical invariant: the hash input includes cch=00000,
     // and the result replaces the zeros. Verify by computing hash on
     // the pre-replacement body and checking it matches.
-    const body = '{"system":[{"type":"text","text":"cch=00000;"}],"msg":"test"}'
+    const body =
+      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cch=00000;"}],"msg":"test"}'
     const cch = await computeCch(body)
 
     // If we replace and then re-hash, we get a DIFFERENT hash

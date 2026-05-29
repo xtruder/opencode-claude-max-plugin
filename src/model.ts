@@ -91,7 +91,7 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.112.a5a; cc_entrypoint=sdk-cli; cch=00000;",
+  text: "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;",
 }
 
 /**
@@ -121,6 +121,26 @@ function buildMetadata(): { user_id: string } {
  */
 function supportsContextManagement(apiModelId: string): boolean {
   return !apiModelId.includes("claude-3-")
+}
+
+/**
+ * Place a single cache breakpoint on the very last content block of the very
+ * last message — exactly matching Claude Code's observed behavior.
+ *
+ * Each turn's request writes a new cache entry covering the full prefix to
+ * that point; the next turn's lookback from its new tail finds the prior
+ * write within the 20-block window, producing a cache READ of the entire
+ * accumulated conversation history.
+ */
+function placeMessageBreakpoints(messages: any[], cache: Record<string, any>): void {
+  if (messages.length === 0) return
+  const msg = messages[messages.length - 1]
+  if (typeof msg.content === "string") {
+    msg.content = [{ type: "text", text: msg.content, cache_control: cache }]
+  } else if (Array.isArray(msg.content) && msg.content.length > 0) {
+    const last = msg.content[msg.content.length - 1]
+    if (last && !last.cache_control) last.cache_control = cache
+  }
 }
 
 export class AnthropicSDKModel implements LanguageModelV3 {
@@ -256,54 +276,15 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     if (tools && tools.length > 0) params.tools = tools
     if (toolChoice) params.tool_choice = toolChoice
 
-    // Cache conversation history — applies to both OAuth and API key modes.
-    //
-    // Strategy per Anthropic docs:
-    // - Cache the last tool_result block when present — this caches the full
-    //   accumulated context (system + messages + thinking + tool results)
-    //   and keeps thinking blocks in cache on subsequent tool-only turns.
-    // - Otherwise cache the last content block of the penultimate message.
-    //
-    // Per docs: cache stays valid when new user content is ONLY tool results.
-    // Cache invalidates (and thinking blocks are stripped) when regular user
-    // text is added — this is expected and unavoidable.
-    if (params.messages && params.messages.length > 1) {
-      const msgs = params.messages as any[]
-      const msgCache = this.isOAuth ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" }
+    // Single cache breakpoint on the last content block of the last message —
+    // exactly what Claude Code does, empirically confirmed via proxy capture.
+    // Each turn writes a new entry covering the full prefix; next turn's
+    // lookback from its tail finds the prior write within the 20-block window.
+    const messageCache: Record<string, any> = this.isOAuth
+      ? { type: "ephemeral", ttl: "1h" }
+      : { type: "ephemeral" }
+    placeMessageBreakpoints(messages, messageCache)
 
-      // Find the last user message that contains tool_result blocks
-      let cachedSomething = false
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const msg = msgs[i]
-        if (msg.role !== "user" || !Array.isArray(msg.content)) continue
-        // Find last tool_result in this message
-        for (let j = msg.content.length - 1; j >= 0; j--) {
-          const block = msg.content[j]
-          if (block.type === "tool_result" && !block.cache_control) {
-            block.cache_control = msgCache
-            cachedSomething = true
-            break
-          }
-        }
-        if (cachedSomething) break
-      }
-
-      // Fallback: cache the last content block of the penultimate message
-      if (!cachedSomething) {
-        const msg = msgs[msgs.length - 2]
-        if (msg && Array.isArray(msg.content) && msg.content.length > 0) {
-          const lastContent = msg.content[msg.content.length - 1]
-          if (lastContent && !lastContent.cache_control) {
-            lastContent.cache_control = msgCache
-          }
-        } else if (msg && typeof msg.content === "string") {
-          msgs[msgs.length - 2] = {
-            ...msg,
-            content: [{ type: "text", text: msg.content, cache_control: msgCache }],
-          }
-        }
-      }
-    }
     if (options.temperature != null) params.temperature = options.temperature
     if (options.topP != null) params.top_p = options.topP
     if (options.topK != null) params.top_k = options.topK

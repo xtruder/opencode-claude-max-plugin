@@ -80,11 +80,6 @@ function convertUserMessage(
     }
   }
 
-  // If only one text part, simplify
-  if (content.length === 1 && content[0].type === "text") {
-    return { role: "user", content: (content[0] as { type: "text"; text: string }).text }
-  }
-
   return { role: "user", content }
 }
 
