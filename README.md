@@ -7,11 +7,11 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 ## Why?
 
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
-- **Matches Claude Code exactly** — Same headers, billing, tool names, and request format as Claude Code CLI
-- **Prompt caching** — 98% of input tokens served from cache (system prompt + tools cached globally)
-- **All Claude models** — Opus 4.6, Sonnet 4.6, Haiku 4.5
-- **Extended thinking** — Full reasoning support with thinking variants (high/max)
-- **Usage tracking** — Sidebar widget with live progress bars + `/usage` command with full details
+- **Matches Claude Code 2.1.154** — Same request format and behavior as the official CLI
+- **Prompt caching** — Multi-turn conversations cache properly, keeping costs and latency low
+- **All Claude models** — Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
+- **Extended / adaptive thinking** — Full reasoning support across models, including Opus 4.7+'s adaptive thinking
+- **Usage tracking** — Sidebar widget with live progress bars + `/usage` command
 - **Self-registering** — Models are registered automatically, no manual provider config needed
 
 ## Installation
@@ -25,9 +25,7 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 }
 ```
 
-That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6) at startup via the OpenCode config hook. No separate `provider` block is needed.
-
-In OpenCode, the plugin also replaces the default base system prompt with a Claude-compatible one via `experimental.chat.system.transform`. This is required for Claude Code OAuth requests to be treated as Claude-native rather than third-party app requests.
+That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
 Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
 
@@ -122,14 +120,13 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 ## Features
 
 - Streaming and non-streaming completions
-- Tool/function calling with Claude Code tool name mapping (`task` → `Agent`, etc.)
+- Tool/function calling with Claude Code tool name mapping (`task` → `Agent`, `webfetch` → `WebFetch`, etc.)
 - MCP tool name remapping (`server_tool` → `mcp__server__tool`)
-- Extended thinking with signature passthrough for multi-turn conversations
-- Prompt caching (98% cache hit rate with full OpenCode tool set)
-- CCH request signing — computes xxHash64 body integrity hash to unlock features like fast mode
-- Subscription rate limit detection — fails fast with clear message instead of hanging
-- Long context auto-detection — adds `context-1m` beta header when request body is large
-- TUI sidebar with live usage bars + `/usage` slash command with full subscription details
+- Extended thinking (Sonnet/Opus 4.6) and adaptive thinking (Opus 4.7+) with effort levels and multi-turn signature passthrough
+- Prompt caching that holds across long, tool-heavy conversations
+- Subscription rate limit detection — fails fast with a clear message instead of hanging
+- Long-context auto-detection for large prompts
+- TUI sidebar with live usage bars + `/usage` slash command
 
 ## With Vercel AI SDK
 
@@ -160,7 +157,7 @@ When using Claude Code OAuth credentials outside OpenCode, you must pass a Claud
 ```bash
 bun install
 bun run build
-bun run test    # integration tests (requires ANTHROPIC_API_KEY or Claude Code credentials)
+bun test src/*.test.ts    # unit + integration tests (model tests require ANTHROPIC_API_KEY or Claude Code credentials)
 ```
 
 See [RESEARCH.md](RESEARCH.md) for detailed reverse-engineering findings on how we matched Claude Code's request format.
