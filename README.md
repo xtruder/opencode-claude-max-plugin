@@ -27,7 +27,7 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 
 That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
-Then open OpenCode and run `/connect` → Other → `anthropic-sdk`. If Claude Code is installed and you're logged in, credentials are read automatically from `~/.claude/.credentials.json` — no API key needed.
+Then open OpenCode and models will automatically be available under `anthropic-sdk` provider.
 
 ### TUI Plugin (sidebar + /usage command)
 
