@@ -2,7 +2,7 @@
 
 This document summarizes the findings from reverse-engineering Claude Code's request format, authentication, and internal structure to build a compatible OpenCode provider.
 
-Last updated: 2026-05-29
+Last updated: 2026-06-11
 
 ## Credentials
 
@@ -78,7 +78,7 @@ Anthropic gates subscription model access for OAuth tokens behind a **billing he
   "system": [
     {
       "type": "text",
-  "text": "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;"
+  "text": "x-anthropic-billing-header: cc_version=2.1.173.d11; cc_entrypoint=sdk-cli; cch=00000;"
 
     },
     ...
@@ -128,11 +128,11 @@ claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-t
 
 Model-conditional flags (added in `wrappedFetch` based on body model field):
 
-| Flag                                 | Models                        | Purpose                                             |
-| ------------------------------------ | ----------------------------- | --------------------------------------------------- |
-| `effort-2025-11-24`                  | Opus 4.x / Sonnet (NOT Haiku) | `output_config.effort`. Haiku rejects this flag     |
-| `mid-conversation-system-2026-04-07` | Opus 4.8 only                 | Allows `role: "system"` messages mid-conversation   |
-| `context-1m-2025-08-07`              | When body > 600K chars        | Long-context routing (only for very large requests) |
+| Flag                                 | Models                                  | Purpose                                             |
+| ------------------------------------ | --------------------------------------- | --------------------------------------------------- |
+| `effort-2025-11-24`                  | Opus 4.x / Sonnet / Fable 5 (NOT Haiku) | `output_config.effort`. Haiku rejects this flag     |
+| `mid-conversation-system-2026-04-07` | Opus 4.8 / Fable 5                      | Allows `role: "system"` messages mid-conversation   |
+| `context-1m-2025-08-07`              | When body > 600K chars                  | Long-context routing (only for very large requests) |
 
 The `oauth-2025-04-20` flag alone is NOT sufficient for subscription model access — the billing system block is also required.
 
@@ -209,6 +209,68 @@ Key differences from extended thinking on Opus 4.6:
 - **`type: "enabled"` is deprecated** on Opus 4.6 and Sonnet 4.6 (still functional but will be removed in future releases)
 
 Our plugin sets `medium` effort as the default and exposes `low/medium/high/xhigh/max` as variant options for Opus 4.7. Thinking is enabled by default via `thinking: { type: "adaptive" }` in both the model options and all variants.
+
+### Claude Fable 5 (Mythos-class, 2026-06-09)
+
+Fable 5 (`claude-fable-5`) is the first publicly available **Mythos-class** model — a tier that sits _above_ the Opus family the way Opus sits above Sonnet. It shares weights with the restricted-access `claude-mythos-5`; the only difference is that Fable 5 ships with active **safety classifiers**, while Mythos 5 (Project Glasswing only) does not.
+
+| Spec           | Value                                                         |
+| -------------- | ------------------------------------------------------------- |
+| API model ID   | `claude-fable-5` (dateless, pinned snapshot)                  |
+| Context window | 1,000,000 tokens                                              |
+| Max output     | 128,000 tokens                                                |
+| Pricing        | $10 / $50 per MTok (input / output) — exactly double Opus 4.8 |
+| Prompt caching | 90% input discount (cache_read = input × 0.1)                 |
+| Modalities     | text, image, file → text (with reasoning)                     |
+
+Behavioral notes from the API docs:
+
+- **Adaptive thinking is always on** — the only thinking mode. `thinking: { type: "disabled" }` is not supported; `thinking` unset is fine. Use `effort` (same `low/medium/high/xhigh/max` levels as Opus 4.7/4.8) to control depth.
+- **Raw chain-of-thought is never returned.** `thinking.display` controls block contents: `"summarized"` (readable summary) or `"omitted"` (empty `thinking` field, the default).
+- Carries 30-day data retention; not available under zero-data-retention (designated a Covered Model).
+
+**Our implementation** registers `claude-fable-5` with 1M context / 128K output, a dedicated `fable` pricing tier, and the Opus 4.7/4.8 effort variants. It shares one condensed system prompt with Opus 4.8 (`claudecode-system-new.txt`) and sends `mid-conversation-system-2026-04-07` + `effort-2025-11-24` like Opus 4.8.
+
+Claude Code 2.1.173 actually sends Fable 5 a _longer_ prompt than Opus 4.8 — a leading security/dual-use `IMPORTANT:` steering block, a verbose `# Communicating with the user` section, a Fable 5 identity blurb (with the Mythos-5 news URL), and CLI-only `# Session-specific guidance` items (`! <command>`, `/code-review ultra`). We distill all of that away: the safety classifiers are **server-side**, not prompt-driven (so the steering text isn't load-bearing for refusal behavior), and the CLI-specific items don't apply to OpenCode. We tested dropping the identity line: with the model ID still present in OpenCode's env block, Fable 5 self-identifies correctly as `claude-fable-5`; asked to ignore the ID, it does _not_ innately know "Fable 5" (training cutoff January 2026 predates the release) and treats the name as an unrecognized alias. We chose to keep the shared base identity-free anyway, accepting that minor introspection gap to avoid a second near-duplicate prompt file. The verbatim CC capture of Fable 5's static base is preserved at `src/fixtures/claudecode-system-fable5-original.txt`.
+
+### Fable 5 Safety Refusals and Fallback
+
+Fable 5's safety classifiers can decline a request. Critically, **a refusal is a successful HTTP 200**, not an error:
+
+```json
+{
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-fable-5",
+  "content": [],
+  "stop_reason": "refusal",
+  "stop_details": {
+    "type": "refusal",
+    "category": "cyber",
+    "explanation": "This request was declined because it could enable cyber harm."
+  },
+  "usage": { "input_tokens": 412, "output_tokens": 0 }
+}
+```
+
+- Branch on `stop_reason === "refusal"`, **not** on `stop_details` or `content`. `stop_details` can be `null` (e.g. on batch results, or when the refusal maps to no named category), and a refusal can arrive mid-stream after partial output.
+- `stop_details.category` is one of: `cyber`, `bio`, `frontier_llm`, `reasoning_extraction` (or `null`). `explanation` text is not stable — display it, don't parse it.
+- A refusal before any output is **not billed** and does not count against rate limits. A mid-stream refusal bills the input + already-streamed output.
+
+| `category`             | Meaning                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `cyber`                | Could enable cyber harm (malware/exploits). Benign cybersecurity work can also trigger.  |
+| `bio`                  | Could enable biological harm. Beneficial life-sciences work can also trigger.            |
+| `frontier_llm`         | Could assist developing competing AI models (restricted under commercial terms).         |
+| `reasoning_extraction` | Asks the model to reproduce its internal reasoning verbatim. Benign trigger for testing. |
+
+**Anthropic's recommended pattern is to fall back to Claude Opus 4.8** for refused requests. Three approaches:
+
+1. **Server-side fallback** (beta on Claude API / Platform on AWS): pass `fallbacks: [{ model: "claude-opus-4-8" }]` + the `server-side-fallback-2026-06-01` beta header. The API retries within one round trip. The response's top-level `model` names who served it; a `fallback` content block marks each handoff; `usage.iterations[]` records every attempt (`type: "message"` = declined, `type: "fallback_message"` = served). Sticky routing pins follow-ups to the accepting model for ~1h.
+2. **Client-side middleware**: `betaRefusalFallbackMiddleware([{ model: "claude-opus-4-8" }])` + a shared `BetaFallbackState` (available in `@anthropic-ai/sdk` ≥ the Fable 5 release; we bumped to 0.104.1). Works on any platform; also sends `fallback-credit-2026-06-01`.
+3. **Manual**: detect `stop_reason: "refusal"`, re-send on the fallback model. Redeem a fallback credit (`fallback-credit-2026-06-01`) to avoid paying the prompt-cache write cost twice.
+
+**Current plugin behavior**: we surface refusals as a **clear error** (in both `doGenerate` and the stream) naming the category + explanation and suggesting `anthropic-sdk/claude-opus-4-8`, rather than returning an empty/confusing response. Automatic fallback is not yet implemented — the refusal-detection helpers live in `src/model.ts` (`isRefusal`, `refusalError`) and `src/stream.ts` (`buildRefusalError`, kept local to avoid a circular import).
 
 ### Rate Limiting
 
@@ -350,7 +412,7 @@ The Opus 4.7/Sonnet/Haiku prompts are byte-identical except for two lines (model
 
 **Our implementation** branches in `experimental.chat.system.transform` on `input.model.id`:
 
-- `claude-opus-4-8` → `claudecode-system-opus48.txt` (condensed)
+- `claude-opus-4-8` / `claude-fable-5` → `claudecode-system-new.txt` (condensed, shared)
 - All other models → `claudecode-system.txt` (long-form)
 
 Both files are scrubbed copies of the CC captures — Claude Code-specific bits removed (`/help`, `/code-review ultra`, `/ultrareview`, memory path, `TaskCreate` references). OpenCode tool names stay verbatim (Read, Edit, Bash, Grep, Glob, Write, Agent, Skill) since the existing bidirectional tool-name mapper handles them at the API layer.
@@ -737,7 +799,7 @@ The `cch=00000` placeholder is embedded in the billing system block (`src/model.
 ```json
 {
   "type": "text",
-  "text": "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;"
+  "text": "x-anthropic-billing-header: cc_version=2.1.173.d11; cc_entrypoint=sdk-cli; cch=00000;"
 }
 ```
 
@@ -913,3 +975,5 @@ The server plugin goes in `.opencode/opencode.json` separately:
 23. **CCH hash mismatch on CC 2.1.154** → Our xxHash64 impl produces different hashes than CC 2.1.154 sends, despite using the documented seed/algorithm and verifying against Python xxhash. Requests still succeed because `/v1/messages` does not enforce CCH for standard inference — only premium features (e.g. fast mode) gate on it. Algorithm divergence is invisible to a proxy. See "Verification against Claude Code 2.1.154" section above
 24. **2026-05-29: prompt-cache collapse in tool-heavy sessions** → Capturing both Claude Code and our plugin through `scripts/cache-proxy.ts` revealed three independent bugs that together stuck `cache_read` at the system+tools floor (~16K tokens) for an entire 130+ turn session while `cache_write` grew past 187K tokens per turn. (a) `replaceCchPlaceholder` used `body.replace(...)` which targets the first occurrence; when Claude read this repo's own source files (which contain the literal `cch=00000` token), the substitution mutated the tool_result content with a per-request hash instead of the billing block, making the cached prefix bytes differ every turn. (b) `convertUserMessage` simplified single-text content to a plain string, while the cache-breakpoint placer normalized it to array-of-blocks on the tail — same content, different byte shape on subsequent turns when it became mid-history. Fixed by always emitting array-of-blocks. (c) The previous breakpoint strategy (cache on last `tool_result`, then top-level automatic caching) didn't replicate what Claude Code actually does. Fixed by placing one explicit `cache_control` on `messages[-1].content[-1]` — exactly Claude Code's pattern. The initial fix for (a) was `lastIndexOf`, later replaced by JSON-targeted replacement — see Discovery #25
 25. **2026-05-29: `lastIndexOf` for CCH was still wrong, fixed properly with JSON parsing** → The `lastIndexOf` fix from Discovery #24 worked for tool_result-based regressions (messages come before system in JSON byte order, so the billing block was usually the last `cch=00000`). But it broke on a different case: when the system prompt itself contained the literal string (AGENTS.md and RESEARCH.md both mention `cch=00000` verbatim in their docs about how the placeholder works, and those docs get spliced into `system[2]`), `system[2]` serializes after `system[0]`, so `lastIndexOf` mutated the docs text in `system[2]` instead of the billing placeholder in `system[0]`. Symptom: long session with stable history still got 0% cache hit on the conversation prefix, while system[0] kept `cch=00000` unsigned. Replaced the string-based replacement with a JSON-aware one: parse the body, find the system block whose text starts with `x-anthropic-billing-header:`, replace inside that block's `text` only, re-serialize. Verified on `ses_18d5c6509ffeCphU2gfvnMJfis` (488-msg history): `cache_read` jumped from 19,857 (system+tools only) to 328,002 (full prefix) on the very next turn after deploying the fix. Three-model regression test confirms Sonnet 4.6, Opus 4.7, and Opus 4.8 all show monotonically-growing `cache_read` with bounded `cache_write` across multi-turn sessions
+26. **2026-06-11: Claude Fable 5 (Mythos-class)** → Anthropic released `claude-fable-5`, the first publicly available model in the new Mythos class that sits above Opus. 1M context / 128K output, $10/$50 per MTok (double Opus 4.8), 90% cache-read discount. Adaptive thinking is always-on (no `disabled` mode); raw CoT is never returned (summarized/omitted only). Integrated it with the condensed Opus 4.8 system prompt and the `mid-conversation-system` + `effort` betas. Bumped `@anthropic-ai/sdk` 0.94.0 → 0.104.1 for native Fable 5 + server-side-fallback support (the `x-stainless-package-version` impersonation header stays pinned). Key new wire behavior: Fable 5's **safety classifiers return `stop_reason: "refusal"` as a successful HTTP 200** (empty `content`, `stop_details.category` ∈ {cyber, bio, frontier_llm, reasoning_extraction}), not an error — verified live via the benign `reasoning_extraction` trigger (asking the model to print its raw chain-of-thought). We surface refusals as a clear error in both `doGenerate` and the stream for now; Anthropic's recommended next step is automatic fallback to Opus 4.8 (server-side `fallbacks` param or the SDK's `betaRefusalFallbackMiddleware`), not yet implemented. See "Claude Fable 5" and "Fable 5 Safety Refusals and Fallback" sections above
+27. **2026-06-11: CC 2.1.173 capture + Fable 5 prompt distilled, prompts unified** → Upgraded Claude Code 2.1.156 → 2.1.173 and captured a real `claude-fable-5` request through `scripts/cache-proxy.ts` (drove the CC TUI in tmux, switched to Fable, sent a trivial prompt). Two findings. (a) **Version bump**: CC now sends `cc_version=2.1.173.d11` (was `2.1.154.cea`) and user-agent `claude-cli/2.1.173`; the bundled SDK is still `0.94.0` (confirmed by `strings` on the CC binary, which embeds `VERSION:"2.1.173"`), so `x-stainless-package-version` stays `0.94.0`. Updated `CLAUDE_CODE_VERSION` and the billing block accordingly. (b) **Prompt diverged but we distilled it**: CC 2.1.173 sends Fable 5 an ~11KB long-form base (vs. the ~1.8KB condensed prompt it sends Opus 4.8) — adding a security/dual-use `IMPORTANT:` steering block, a verbose `# Communicating with the user` section, a Fable 5 identity blurb, and CLI-only session items. None of it is load-bearing for us: refusals are enforced server-side (not by the steering text), and the CLI items don't apply to OpenCode. Tested dropping the identity line — Fable 5 still self-identifies from the env block's model ID, but without it has no innate knowledge of "Fable 5" (Jan 2026 cutoff) and calls its own name an unrecognized alias. Decided to **unify** the two near-identical condensed prompts into one shared `claudecode-system-new.txt` (identity-free), used for both Opus 4.8 and Fable 5, deleting `claudecode-system-opus48.txt`. The verbatim Fable 5 static base is archived at `src/fixtures/claudecode-system-fable5-original.txt`

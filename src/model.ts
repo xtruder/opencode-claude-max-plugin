@@ -67,6 +67,36 @@ function handleApiError(error: unknown): never {
   throw error
 }
 
+/**
+ * Build a clear error for a Fable 5 / Mythos-class safety refusal.
+ *
+ * Fable 5's safety classifiers can decline a request — the Messages API
+ * returns this as a *successful* HTTP 200 with `stop_reason: "refusal"`,
+ * empty `content`, and a `stop_details` object naming the policy area.
+ * Categories: cyber, bio, frontier_llm, reasoning_extraction (may be null).
+ *
+ * For now we surface this as an error so the user gets a clear message
+ * instead of an empty/confusing response. A future enhancement is to
+ * automatically retry on a fallback model (Claude Opus 4.8), per Anthropic's
+ * recommended pattern. See RESEARCH.md.
+ */
+export function isRefusal(stopReason: string | null | undefined): boolean {
+  return stopReason === "refusal"
+}
+
+export function refusalError(stopDetails: any): Error {
+  const category = stopDetails?.category ?? null
+  const explanation = stopDetails?.explanation ?? null
+  const categoryNote = category ? ` (category: ${category})` : ""
+  const detail = explanation
+    ? explanation
+    : "Claude Fable 5's safety classifiers declined this request."
+  return new Error(
+    `Claude Fable 5 refused this request${categoryNote}. ${detail} ` +
+      `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`,
+  )
+}
+
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
   const unified = (() => {
     switch (stopReason) {
@@ -91,7 +121,7 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.154.cea; cc_entrypoint=sdk-cli; cch=00000;",
+  text: "x-anthropic-billing-header: cc_version=2.1.173.d11; cc_entrypoint=sdk-cli; cch=00000;",
 }
 
 /**
@@ -371,6 +401,12 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       )) as Anthropic.Message
     } catch (error) {
       handleApiError(error)
+    }
+
+    // Fable 5 safety refusal: HTTP 200 with stop_reason "refusal" and empty
+    // content. Surface as a clear error rather than an empty response.
+    if (isRefusal(response.stop_reason)) {
+      throw refusalError((response as any).stop_details)
     }
 
     const content: LanguageModelV3Content[] = []

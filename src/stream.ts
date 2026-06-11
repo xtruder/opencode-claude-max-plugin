@@ -20,6 +20,24 @@ function generateId(): string {
   return `block-${Date.now()}-${idCounter++}`
 }
 
+/**
+ * Build a clear error for a Fable 5 safety refusal observed mid-stream.
+ * Mirrors model.ts:refusalError — kept local to avoid a circular import
+ * (model.ts imports this module).
+ */
+function buildRefusalError(stopDetails: any): Error {
+  const category = stopDetails?.category ?? null
+  const explanation = stopDetails?.explanation ?? null
+  const categoryNote = category ? ` (category: ${category})` : ""
+  const detail = explanation
+    ? explanation
+    : "Claude Fable 5's safety classifiers declined this request."
+  return new Error(
+    `Claude Fable 5 refused this request${categoryNote}. ${detail} ` +
+      `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`,
+  )
+}
+
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
   const unified = (() => {
     switch (stopReason) {
@@ -61,6 +79,15 @@ export function convertStream(
           if (event.type === "message_delta") {
             const delta = event as any
             outputTokens = delta.usage?.output_tokens
+            // Fable 5 safety refusal arrives mid-stream as stop_reason
+            // "refusal". Surface it as a stream error so the caller gets a
+            // clear message instead of a silently truncated/empty response.
+            if (delta.delta?.stop_reason === "refusal") {
+              controller.enqueue({
+                type: "error",
+                error: buildRefusalError(delta.delta?.stop_details),
+              })
+            }
             const finishReason = mapFinishReason(delta.delta?.stop_reason)
             controller.enqueue({
               type: "finish",

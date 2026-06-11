@@ -2,25 +2,35 @@ import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 import Anthropic from "@anthropic-ai/sdk"
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
-import CLAUDE_OPUS48_SYSTEM_PROMPT from "./claudecode-system-opus48.txt" with { type: "text" }
+import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
 import { AnthropicSDKModel } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
 export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
-export const CLAUDE_CODE_OPUS48_SYSTEM_PROMPT = CLAUDE_OPUS48_SYSTEM_PROMPT
+export const CLAUDE_CODE_NEW_SYSTEM_PROMPT = CLAUDE_NEW_SYSTEM_PROMPT
 
 /**
  * Select the Claude Code system prompt that matches the given model.
  *
- * Claude Code 2.1.154 ships per-model prompts: Opus 4.8 gets a condensed
- * ~6KB "Harness" prompt that trusts the model's defaults; everything else
- * (Opus 4.7, Sonnet 4.6, Haiku 4.5, Opus 4.6) gets the long-form ~11KB
- * prompt with explicit behavior rules.
+ * Claude Code ships per-model prompts: the newer flagships (Opus 4.8,
+ * Fable 5) get a condensed "Harness" prompt that trusts the model's
+ * defaults; everything else (Opus 4.7, Sonnet 4.6, Haiku 4.5, Opus 4.6)
+ * gets the long-form prompt with explicit behavior rules.
+ *
+ * Opus 4.8 and Fable 5 share one condensed prompt here. Claude Code 2.1.173
+ * sends Fable 5 a longer variant (security steering, a verbose
+ * "Communicating" section, a Fable 5 identity blurb, and CLI-only session
+ * items), but the safety classifiers are server-side rather than
+ * prompt-driven and the CLI-specific guidance does not apply to OpenCode —
+ * so we distill it down to the shared base. The verbatim capture lives in
+ * src/fixtures/claudecode-system-fable5-original.txt.
  */
 export function selectClaudePromptForModel(modelId: string): string {
-  if (modelId.includes("opus-4-8")) return CLAUDE_OPUS48_SYSTEM_PROMPT
+  if (modelId.includes("opus-4-8") || modelId.includes("fable-5")) {
+    return CLAUDE_NEW_SYSTEM_PROMPT
+  }
   return CLAUDE_MAIN_SYSTEM_PROMPT
 }
 
@@ -28,7 +38,7 @@ export function selectClaudePromptForModel(modelId: string): string {
  * Claude Code CLI version to impersonate.
  * Used in user-agent, billing header, and x-stainless-package-version.
  */
-const CLAUDE_CODE_VERSION = "2.1.154"
+const CLAUDE_CODE_VERSION = "2.1.173"
 
 /**
  * Beta flags that Claude Code sends on every OAuth request.
@@ -74,6 +84,10 @@ const API_KEY_COSTS = {
   haiku: { input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25 },
   sonnet: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
   opus: { input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25 },
+  // Fable 5 (Mythos-class): $10/$50 per MTok — exactly double Opus.
+  // Prompt caching gets a 90% input discount → cache_read = input * 0.1.
+  // cache_write 5m is input * 1.25 (matches Anthropic's standard ratio).
+  fable: { input: 10.0, output: 50.0, cache_read: 1.0, cache_write: 12.5 },
 } as const
 
 const ZERO_COST = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
@@ -225,6 +239,35 @@ function buildPluginModels(isOAuth: boolean) {
       temperature: true,
       limit: { context: 1_000_000, output: 128_000 },
       cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium" },
+      ...opus47Variants,
+    },
+    /**
+     * Fable 5 — Anthropic's most capable widely released model (released 2026-06-09).
+     *
+     * First publicly available Mythos-class model; sits above the Opus family.
+     * 1M context window, up to 128K output. Pricing $10/$50 per MTok (double Opus 4.8).
+     *
+     * Adaptive thinking is always-on (the only thinking mode); raw chain-of-thought
+     * is never returned (thinking blocks are summarized or omitted). Uses the same
+     * effort levels as Opus 4.7/4.8 (low/medium/high/xhigh/max).
+     *
+     * Safety classifiers can decline requests in cyber/bio/frontier_llm/reasoning_extraction
+     * domains, returning stop_reason: "refusal" (HTTP 200). Anthropic recommends falling
+     * back to Claude Opus 4.8 for those — handled separately (see RESEARCH.md / model.ts).
+     */
+    "claude-fable-5": {
+      name: "Claude Fable 5",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: true,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("fable"),
       modalities: {
         input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
         output: ["text"] as Array<"text">,
@@ -400,7 +443,9 @@ export function createAnthropicSDK(
 
       // mid-conversation-system-2026-04-07: Opus 4.8+ only. Older models
       // reject unknown beta flags, so only send when actually targeting 4.8+.
-      if (model.includes("opus-4-8")) {
+      // Fable 5 is the Mythos-class flagship that supersedes Opus 4.8 and
+      // accepts the same mid-conversation system messages.
+      if (model.includes("opus-4-8") || model.includes("fable-5")) {
         if (!betas.includes("mid-conversation-system-2026-04-07")) {
           betas.push("mid-conversation-system-2026-04-07")
         }
