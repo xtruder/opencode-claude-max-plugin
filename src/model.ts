@@ -171,6 +171,26 @@ function supportsContextManagement(apiModelId: string): boolean {
 }
 
 /**
+ * Whether the model uses always-on adaptive thinking driven by
+ * `output_config.effort` rather than extended thinking (`type: "enabled"`).
+ *
+ * These models (Opus 4.7, Opus 4.8, Fable 5) default `thinking.display` to
+ * "omitted" on the wire — i.e. thinking blocks come back with an EMPTY
+ * `thinking` field (only a signature for multi-turn continuity), so the TUI
+ * has nothing to render. We must send `thinking: { display: "summarized" }`
+ * explicitly to receive the readable summary. (Opus/Sonnet 4.6 use extended
+ * thinking, which defaults to "summarized" already, so this must NOT apply to
+ * them.) See RESEARCH.md "Claude Opus 4.7" / "Claude Fable 5".
+ */
+function usesAdaptiveThinking(apiModelId: string): boolean {
+  return (
+    apiModelId.includes("claude-opus-4-7") ||
+    apiModelId.includes("claude-opus-4-8") ||
+    apiModelId.includes("claude-fable-5")
+  )
+}
+
+/**
  * Place a single cache breakpoint on the very last content block of the very
  * last message — exactly matching Claude Code's observed behavior.
  *
@@ -298,6 +318,15 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           options.providerOptions?.anthropic) as Record<string, any> | undefined
         const effort = providerOpts?.effort ?? "medium"
         params.output_config = { effort }
+
+        // Adaptive-thinking models (Opus 4.7/4.8, Fable 5) default
+        // `thinking.display` to "omitted" on the wire, returning empty thinking
+        // blocks (signature only) — nothing for the TUI to render. Request the
+        // summarized chain-of-thought explicitly. A user-supplied `thinking`
+        // config (handled below) still wins.
+        if (usesAdaptiveThinking(this.apiModelId)) {
+          params.thinking = { type: "adaptive", display: "summarized" }
+        }
       }
     } else if (system) {
       // API key mode — add plain ephemeral cache_control matching Claude Code
@@ -349,7 +378,14 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       if (anthropicOptions.thinking) {
         const t = anthropicOptions.thinking
         if (t.type === "adaptive") {
-          params.thinking = { type: "adaptive" }
+          // Preserve `display` so adaptive-thinking models still return the
+          // summarized chain-of-thought (they default to "omitted" otherwise).
+          params.thinking = {
+            type: "adaptive",
+            display:
+              t.display ?? (usesAdaptiveThinking(this.apiModelId) ? "summarized" : undefined),
+          }
+          if (params.thinking.display == null) delete params.thinking.display
         } else if (t.type === "enabled" && t.budgetTokens) {
           params.thinking = { type: "enabled", budget_tokens: t.budgetTokens }
         } else {

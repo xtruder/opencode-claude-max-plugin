@@ -358,6 +358,45 @@ describe("thinking", () => {
   }, 30_000)
 })
 
+// ─── Adaptive thinking display (Opus 4.7/4.8, Fable 5) ───────────────────────
+//
+// These models default `thinking.display` to "omitted" on the wire, returning
+// EMPTY thinking blocks (signature only) unless we explicitly request
+// "summarized". Regression guard for the bug where Fable 5 showed no thinking.
+
+describe("adaptive thinking display", () => {
+  if (skipUnless(isOAuth, "adaptive thinking tests require OAuth credentials")) return
+
+  test("fable-5 returns non-empty summarized reasoning text", async () => {
+    const fableModel = provider.languageModel("claude-fable-5")
+    const result = await fableModel.doStream({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "What is 17 * 23? Think step by step." }],
+        },
+      ],
+      providerOptions: { "anthropic-sdk": { effort: "high" } },
+    } as any)
+
+    const reader = result.stream.getReader()
+    const eventTypes = new Set<string>()
+    let reasoningText = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      eventTypes.add(value.type)
+      if (value.type === "reasoning-delta") reasoningText += (value as any).delta
+    }
+
+    expect(eventTypes.has("reasoning-start")).toBe(true)
+    expect(eventTypes.has("reasoning-delta")).toBe(true)
+    // The core assertion: thinking text is actually present, not empty.
+    expect(reasoningText.length).toBeGreaterThan(0)
+  }, 30_000)
+})
+
 // ─── Reasoning effort ────────────────────────────────────────────────────────
 
 describe("reasoning effort", () => {
