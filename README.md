@@ -9,8 +9,9 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
 - **Matches Claude Code 2.1.154** — Same request format and behavior as the official CLI
 - **Prompt caching** — Multi-turn conversations cache properly, keeping costs and latency low
-- **All Claude models** — Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
+- **All Claude models** — Fable 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
 - **Extended / adaptive thinking** — Full reasoning support across models, including Opus 4.7+'s adaptive thinking
+- **Safety-refusal fallback** — Fable 5 refusals are transparently answered by Opus 4.8 in the same request, with TUI notification
 - **Usage tracking** — Sidebar widget with live progress bars + `/usage` command
 - **Self-registering** — Models are registered automatically, no manual provider config needed
 
@@ -25,7 +26,7 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 }
 ```
 
-That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8) at startup via the OpenCode config hook. No separate `provider` block is needed.
+That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8, Fable 5) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
 Then open OpenCode and models will automatically be available under `anthropic-sdk` provider.
 
@@ -54,6 +55,7 @@ The TUI plugin provides:
 - **Sidebar widget** — Compact progress bars for 5-hour session and 7-day weekly usage
 - **`/usage` command** — Opens a dialog with full usage breakdown (per-model, extra usage)
 - **Auto-refresh** — Polls the usage API every 60s and after each inference call
+- **Fallback indicator** — Toast when a Fable 5 refusal falls back to Opus 4.8, plus a sidebar line showing which model served the latest turn
 
 #### TUI Configuration
 
@@ -108,6 +110,36 @@ If you want to override model settings (e.g. thinking budgets, variants), you ca
 
 Config-level settings are merged with plugin defaults — you only need to specify what you want to override.
 
+### Claude Fable 5 and safety-refusal fallback
+
+Claude Fable 5 (`claude-fable-5`) ships with stricter safety classifiers that can refuse a request at the API level (`stop_reason: "refusal"`) — even for benign follow-ups if the conversation contains a flagged topic. To keep sessions usable, the plugin enables Anthropic's server-side fallback by default: when Fable 5 refuses, **Opus 4.8 answers the same request in the same round trip**. Tool loops keep running, thinking chains stay verified, and prompt caching is unaffected.
+
+When a fallback happens:
+
+- The TUI shows a toast (`fable-5 refused — answered by opus-4-8`) on the first fallback turn
+- The sidebar shows a `Model Fallback` line while the latest turn was served by the fallback model
+- The served model is recorded in part metadata (`anthropic.servedBy`) — the model's own self-report will still say `claude-fable-5`, since identity comes from the prompt, not the serving model
+
+Configure via the `refusalFallback` model option:
+
+```json
+{
+  "provider": {
+    "anthropic-sdk": {
+      "models": {
+        "claude-fable-5": {
+          "options": {
+            "refusalFallback": false
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Set it to another model ID to change the fallback target, or `false` to disable (refusals then surface as errors with the refusal category).
+
 ## Authentication
 
 Credentials are resolved in order:
@@ -124,6 +156,7 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 - MCP tool name remapping (`server_tool` → `mcp__server__tool`)
 - Extended thinking (Sonnet/Opus 4.6) and adaptive thinking (Opus 4.7+) with effort levels and multi-turn signature passthrough
 - Prompt caching that holds across long, tool-heavy conversations
+- Server-side safety-refusal fallback for Fable 5 (configurable, on by default)
 - Subscription rate limit detection — fails fast with a clear message instead of hanging
 - Long-context auto-detection for large prompts
 - TUI sidebar with live usage bars + `/usage` slash command
