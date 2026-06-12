@@ -131,6 +131,18 @@ export function convertStream(
                 ),
               })
             }
+            // pause_turn only reaches here when auto-continuation (see
+            // pause-turn.ts) ran out of attempts. Surface it instead of
+            // ending as a silent empty response.
+            if (delta.delta?.stop_reason === "pause_turn") {
+              controller.enqueue({
+                type: "error",
+                error: new Error(
+                  `Anthropic kept pausing this turn (stop_reason "pause_turn") ` +
+                    `after the provider's auto-continuation attempts. Retry the request.`,
+                ),
+              })
+            }
             const finishReason = mapFinishReason(delta.delta?.stop_reason)
             controller.enqueue({
               type: "finish",

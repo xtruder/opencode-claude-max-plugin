@@ -11,6 +11,12 @@ import type {
 import type Anthropic from "@anthropic-ai/sdk"
 import { APIError, RateLimitError } from "@anthropic-ai/sdk"
 import { createHash, randomBytes } from "node:crypto"
+import {
+  MAX_PAUSE_TURN_CONTINUATIONS,
+  continuationParams,
+  isPauseTurn,
+  withPauseTurnContinuation,
+} from "./pause-turn.ts"
 import { convertPrompt } from "./prompt.ts"
 import { convertStream } from "./stream.ts"
 import { toOpencodeToolName } from "./tool-names.ts"
@@ -444,6 +450,34 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       handleApiError(error)
     }
 
+    // pause_turn auto-continuation: resend the conversation (with the paused
+    // turn's partial content appended) so the model can finish its turn.
+    const pausedBlocks: any[] = []
+    let continuations = 0
+    while (isPauseTurn(response.stop_reason) && continuations < MAX_PAUSE_TURN_CONTINUATIONS) {
+      continuations++
+      pausedBlocks.push(...response.content)
+      try {
+        response = (await this.client.messages.create(
+          {
+            ...continuationParams(params, pausedBlocks),
+            stream: false,
+          } as Anthropic.MessageCreateParamsNonStreaming,
+          this.buildRequestOptions(options.abortSignal, needsFallbackBetas),
+        )) as Anthropic.Message
+      } catch (error) {
+        handleApiError(error)
+      }
+    }
+    if (isPauseTurn(response.stop_reason)) {
+      throw new Error(
+        `Anthropic paused this turn (stop_reason "pause_turn") more than ` +
+          `${MAX_PAUSE_TURN_CONTINUATIONS} times. Retry the request.`,
+      )
+    }
+    // The turn's full content spans all paused segments plus the final one.
+    const responseContent = [...pausedBlocks, ...response.content] as typeof response.content
+
     const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
 
     // Fable 5 safety refusal: HTTP 200 with stop_reason "refusal" and empty
@@ -469,7 +503,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     //     models' thinking verification chains, so it is load-bearing.
     //   anthropic.servedBy — display-only notice ({from, to, kind}) the TUI
     //     plugin uses to show a toast + sidebar status. Never echoed.
-    const fallbackBlock = response.content.find((b: any) => b.type === "fallback") as any
+    const fallbackBlock = responseContent.find((b: any) => b.type === "fallback") as any
     const sticky =
       !fallbackBlock && fallbacksSent && response.model && response.model !== this.apiModelId
     let pendingMeta: Record<string, any> | undefined
@@ -499,7 +533,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     }
 
     let seenFallbackBlock = false
-    for (const block of response.content) {
+    for (const block of responseContent) {
       switch (block.type) {
         case "text": {
           const meta = seenFallbackBlock || sticky ? takeMeta() : undefined
@@ -623,8 +657,18 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       handleApiError(error)
     }
 
+    // pause_turn auto-continuation: re-issue the request (with any partial
+    // assistant content appended) when the server pauses the turn. Without
+    // this a paused turn ends as a silent empty response.
+    const makeRequest = (p: Record<string, any>) =>
+      this.client.messages.create(
+        { ...p, stream: true } as Anthropic.MessageCreateParamsStreaming,
+        this.buildRequestOptions(options.abortSignal, needsFallbackBetas),
+      ) as Promise<AsyncIterable<any>>
+    const continued = withPauseTurnContinuation(anthropicStream as any, params, makeRequest)
+
     const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
-    const stream = convertStream(anthropicStream as any, this.modelId, {
+    const stream = convertStream(continued, this.modelId, {
       apiModelId: this.apiModelId,
       fallbacksEnabled: fallbacksSent,
       fallbackModel: fallbacksSent ? params.fallbacks[0].model : undefined,
