@@ -530,22 +530,24 @@ const tui: TuiPlugin = async (api, options) => {
   api.lifecycle.onDispose(offEvent)
 
   // Register /usage command
-  api.command?.register(() => [
-    {
-      title: "Claude subscription usage",
-      value: "anthropic-sdk.usage",
-      category: "Claude",
-      slash: {
-        name: "usage",
+  const offCommand = api.keymap.registerLayer({
+    commands: [
+      {
+        namespace: "palette",
+        name: "anthropic-sdk.usage",
+        title: "Claude subscription usage",
+        category: "Claude",
+        slashName: "usage",
+        run() {
+          store.refresh()
+          api.ui.dialog.replace(() => (
+            <UsageDialog api={api} usage={store.usage} status={store.status} />
+          ))
+        },
       },
-      onSelect() {
-        store.refresh()
-        api.ui.dialog.replace(() => (
-          <UsageDialog api={api} usage={store.usage} status={store.status} />
-        ))
-      },
-    },
-  ])
+    ],
+  })
+  api.lifecycle.onDispose(offCommand)
 
   // Register sidebar slot
   if (config.sidebar) {
