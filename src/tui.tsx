@@ -132,6 +132,144 @@ function createUsageStore(pollInterval: number) {
   }
 }
 
+// ─── Fallback store ──────────────────────────────────────────────────
+
+/**
+ * Watches for server-side model fallback (Fable 5 safety refusal → Opus 4.8).
+ *
+ * The provider attaches a display-only `anthropic.servedBy` object to part
+ * metadata when a response was served by a fallback model (see stream.ts).
+ * OpenCode persists part metadata and forwards it here via
+ * `message.part.updated` — no side-channel store is needed.
+ *
+ * Sticky routing is keyed on the conversation prefix server-side, so the
+ * fallback state is PER SESSION — a refusal in one session says nothing
+ * about another.
+ *
+ * The sidebar state is DERIVED from the session's persisted messages (via
+ * api.state, OpenCode's synced replica) rather than accumulated from live
+ * events — so it is correct after a TUI restart or when opening an old
+ * session. The event subscription only drives the live toast, deduped with
+ * an in-memory Set (part events never replay across restarts).
+ */
+type FallbackInfo = {
+  from: string
+  to: string
+  kind: "fallback" | "sticky"
+  at: number
+}
+
+const shortModel = (model: string) => model.replace(/^claude-/, "")
+
+// Absolute time — stable without periodic re-rendering ("ago" phrasing
+// would freeze between reactive updates).
+const atTime = (at: number) =>
+  new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+
+function createFallbackStore(api: Api) {
+  // Dedupe the repeated part-update events that fire as a part streams.
+  const seenParts = new Set<string>()
+
+  /** Extract the servedBy marker from one assistant message's parts. */
+  const markerOf = (msg: any): FallbackInfo | null => {
+    let latest: FallbackInfo | null = null
+    for (const part of api.state.part(msg.id)) {
+      const servedBy = (part as any)?.metadata?.anthropic?.servedBy
+      if (!servedBy?.to) continue
+      const time = (part as any)?.time
+      const at = time?.end ?? time?.start ?? msg.time?.created ?? 0
+      latest = {
+        from: String(servedBy.from ?? "unknown"),
+        to: String(servedBy.to),
+        kind: servedBy.kind === "sticky" ? "sticky" : "fallback",
+        at,
+      }
+    }
+    return latest
+  }
+
+  /**
+   * Walk a session's messages newest-first, yielding real assistant turns
+   * (skipping title-generation / compaction summaries, which never carry
+   * routing markers and would mask the real last turn).
+   */
+  function* assistantTurns(sessionID: string, beforeMessageID?: string) {
+    const messages = api.state.session.messages(sessionID)
+    let skipping = beforeMessageID !== undefined
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as any
+      if (skipping) {
+        if (msg?.id === beforeMessageID) skipping = false
+        continue
+      }
+      if (msg?.role !== "assistant") continue
+      if (msg.summary) continue
+      yield msg
+    }
+  }
+
+  // Live toast — only on the TRANSITION into fallback. A conversation that
+  // trips the classifier every turn would otherwise toast on every message;
+  // the sidebar line covers the continuing state. Sticky follow-ups never
+  // toast for the same reason.
+  const off = api.event.on("message.part.updated", (event) => {
+    const part = (event as any).properties?.part
+    const sessionID = (event as any).properties?.sessionID ?? part?.sessionID
+    const servedBy = part?.metadata?.anthropic?.servedBy
+    if (!servedBy?.to || !part?.id || !part?.messageID || !sessionID) return
+    if (seenParts.has(part.id)) return
+    seenParts.add(part.id)
+    if (servedBy.kind === "sticky") return
+
+    // Was the previous completed assistant turn already fallback-served?
+    for (const msg of assistantTurns(sessionID, part.messageID)) {
+      if (markerOf(msg)) return // continuation, not a transition
+      if (msg.time?.completed) break // last known state was the primary model
+    }
+
+    api.ui.toast({
+      variant: "warning",
+      title: "Model fallback",
+      message: `${shortModel(String(servedBy.from ?? "unknown"))} refused — answered by ${shortModel(String(servedBy.to))}`,
+      duration: 6000,
+    })
+  })
+
+  /**
+   * Fallback state for one session, derived from its message parts — a pure
+   * reactive derivation that re-evaluates only when session state changes.
+   *
+   * Only the MOST RECENT *settled* assistant turn is consulted: sticky
+   * routing re-emits a servedBy marker on every turn while active, and a
+   * turn that routed back to the primary model carries no marker. Looking
+   * further back would resurrect a stale fallback after the session has
+   * already returned to the requested model.
+   *
+   * A still-streaming turn without a marker is "unknown", not "no
+   * fallback" — the previous completed turn's state keeps showing until
+   * the new turn settles (otherwise the line flickers off on every send
+   * and back on when the refusal hits mid-stream).
+   *
+   * No time window: "the latest turn was served by X" is a fact that stays
+   * true until the next turn says otherwise. Whether the server's sticky
+   * routing is still active is unobservable — we don't guess.
+   */
+  const active = (sessionID: string | undefined): FallbackInfo | null => {
+    if (!sessionID) return null
+    for (const msg of assistantTurns(sessionID)) {
+      const marker = markerOf(msg)
+      if (marker) return marker
+      // No marker on a finished turn → currently served by the requested
+      // model. No marker on a streaming turn → not known yet, keep looking
+      // at the previous turn.
+      if (msg.time?.completed) return null
+    }
+    return null
+  }
+
+  return { active, dispose: off }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
@@ -238,6 +376,34 @@ function UsageSidebar(props: {
           }}
         </Show>
       </box>
+    </Show>
+  )
+}
+
+// ─── Fallback Sidebar Component ──────────────────────────────────────
+
+function FallbackSidebar(props: {
+  theme: TuiThemeCurrent
+  sessionID: string | undefined
+  active: (sessionID: string | undefined) => FallbackInfo | null
+}) {
+  return (
+    <Show when={props.active(props.sessionID)}>
+      {(info: Accessor<FallbackInfo>) => (
+        <box width="100%" flexDirection="column">
+          <text fg={props.theme.warning}>
+            <b>Model Fallback</b>
+          </text>
+          <text fg={props.theme.text}>
+            {shortModel(info().from)} → {shortModel(info().to)}
+          </text>
+          <text fg={props.theme.textMuted}>
+            {info().kind === "sticky"
+              ? `sticky-routed at ${atTime(info().at)}`
+              : `refused at ${atTime(info().at)}`}
+          </text>
+        </box>
+      )}
     </Show>
   )
 }
@@ -353,6 +519,10 @@ const tui: TuiPlugin = async (api, options) => {
   const store = createUsageStore(config.poll_interval)
   api.lifecycle.onDispose(store.dispose)
 
+  // Model fallback notifications (toast) + sidebar status line
+  const fallback = createFallbackStore(api)
+  api.lifecycle.onDispose(fallback.dispose)
+
   // Refresh when session goes idle (inference completed — server just wrote new headers)
   const offEvent = api.event.on("session.idle", () => {
     setTimeout(store.refresh, 1000)
@@ -382,9 +552,16 @@ const tui: TuiPlugin = async (api, options) => {
     api.slots.register({
       order: 110,
       slots: {
-        sidebar_content(ctx) {
+        sidebar_content(ctx, props) {
           return (
-            <UsageSidebar theme={ctx.theme.current} usage={store.usage} status={store.status} />
+            <>
+              <UsageSidebar theme={ctx.theme.current} usage={store.usage} status={store.status} />
+              <FallbackSidebar
+                theme={ctx.theme.current}
+                sessionID={(props as { session_id?: string } | undefined)?.session_id}
+                active={fallback.active}
+              />
+            </>
           )
         },
       },

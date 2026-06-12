@@ -84,17 +84,17 @@ export function isRefusal(stopReason: string | null | undefined): boolean {
   return stopReason === "refusal"
 }
 
-export function refusalError(stopDetails: any): Error {
+export function refusalError(stopDetails: any, fallbackModel?: string): Error {
   const category = stopDetails?.category ?? null
   const explanation = stopDetails?.explanation ?? null
   const categoryNote = category ? ` (category: ${category})` : ""
   const detail = explanation
     ? explanation
     : "Claude Fable 5's safety classifiers declined this request."
-  return new Error(
-    `Claude Fable 5 refused this request${categoryNote}. ${detail} ` +
-      `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`,
-  )
+  const hint = fallbackModel
+    ? `The configured fallback model (${fallbackModel}) also refused.`
+    : `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`
+  return new Error(`Claude Fable 5 refused this request${categoryNote}. ${detail} ${hint}`)
 }
 
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
@@ -113,6 +113,17 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3
   })()
   return { unified, raw: stopReason ?? undefined }
 }
+
+/**
+ * Internal marker header: set on requests that need the server-side-fallback
+ * betas (request carries a `fallbacks` chain, or the conversation history
+ * echoes a `fallback` block from a previous fallback response). The fetch
+ * wrapper in index.ts translates it into the real `anthropic-beta` flags and
+ * strips it before the request leaves the process. This keeps the decision
+ * here — where the request is built — instead of sniffing the serialized
+ * body in the fetch wrapper (cf. RESEARCH.md Discovery #24/#25).
+ */
+export const FALLBACK_BETAS_HEADER = "x-anthropic-sdk-fallback-betas"
 
 /**
  * Anthropic gates subscription model access (Opus, Sonnet, etc.) for OAuth
@@ -340,6 +351,20 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         }
       }
       if (anthropicOptions.metadata) params.metadata = anthropicOptions.metadata
+
+      // Server-side fallback for safety refusals (Fable 5 → Opus 4.8).
+      // Configured via model options: `refusalFallback: "claude-opus-4-8"`
+      // (set as the default on claude-fable-5). Users disable it with
+      // `refusalFallback: false` in their opencode.json model options.
+      // The API retries declined requests on the fallback model within one
+      // round trip; the fetch wrapper adds the server-side-fallback betas
+      // when this param is present. See RESEARCH.md "Fable 5 Safety Refusals".
+      if (
+        typeof anthropicOptions.refusalFallback === "string" &&
+        anthropicOptions.refusalFallback.length > 0
+      ) {
+        params.fallbacks = [{ model: anthropicOptions.refusalFallback }]
+      }
     }
 
     // Context management: preserve thinking blocks in context for better
@@ -367,7 +392,19 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       }
     }
 
-    return { params, warnings }
+    // Server-side fallback betas are needed when this request carries a
+    // `fallbacks` chain or when history echoes a `fallback` block (prompt.ts
+    // re-inserts those from part metadata). Both are known structurally
+    // right here — buildRequestOptions turns this into the marker header.
+    const needsFallbackBetas =
+      params.fallbacks != null ||
+      messages.some(
+        (msg: any) =>
+          Array.isArray(msg.content) &&
+          msg.content.some((block: any) => block?.type === "fallback"),
+      )
+
+    return { params, warnings, needsFallbackBetas }
   }
 
   /**
@@ -375,14 +412,18 @@ export class AnthropicSDKModel implements LanguageModelV3 {
    * The -1m suffix only controls OpenCode's compaction threshold — no extra
    * beta header is needed since Opus 4.6 natively supports 1M tokens.
    */
-  private buildRequestOptions(signal?: AbortSignal): Record<string, any> {
+  private buildRequestOptions(
+    signal?: AbortSignal,
+    needsFallbackBetas?: boolean,
+  ): Record<string, any> {
     const opts: Record<string, any> = {}
     if (signal) opts.signal = signal
+    if (needsFallbackBetas) opts.headers = { [FALLBACK_BETAS_HEADER]: "1" }
     return opts
   }
 
   async doGenerate(options: LanguageModelV3CallOptions): Promise<DoGenerateResult> {
-    const { params, warnings } = this.buildParams(options)
+    const { params, warnings, needsFallbackBetas } = this.buildParams(options)
 
     // Non-streaming has a 10min SDK timeout enforced when max_tokens > threshold.
     // Cap to 4096 if not explicitly set (doGenerate is only used in tests/simple cases).
@@ -397,42 +438,103 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           ...params,
           stream: false,
         } as Anthropic.MessageCreateParamsNonStreaming,
-        this.buildRequestOptions(options.abortSignal),
+        this.buildRequestOptions(options.abortSignal, needsFallbackBetas),
       )) as Anthropic.Message
     } catch (error) {
       handleApiError(error)
     }
 
+    const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
+
     // Fable 5 safety refusal: HTTP 200 with stop_reason "refusal" and empty
-    // content. Surface as a clear error rather than an empty response.
+    // content. With server-side fallback enabled this only happens when the
+    // whole chain refused. Surface as a clear error rather than an empty
+    // response.
     if (isRefusal(response.stop_reason)) {
-      throw refusalError((response as any).stop_details)
+      throw refusalError(
+        (response as any).stop_details,
+        fallbacksSent ? params.fallbacks[0].model : undefined,
+      )
+    }
+
+    // Server-side fallback detection. A `fallback` content block marks the
+    // hop where a declined model's output gives way to the fallback model.
+    // Sticky-routed follow-up turns carry no block — the response `model`
+    // field differing from the requested model is the signal there.
+    //
+    // Two metadata keys ride on part metadata (persisted by OpenCode and
+    // synced to the TUI — same round-trip mechanism as thinking signatures):
+    //   anthropic.fallback — the block itself; prompt.ts re-inserts it into
+    //     history verbatim. Its position separates the declining and serving
+    //     models' thinking verification chains, so it is load-bearing.
+    //   anthropic.servedBy — display-only notice ({from, to, kind}) the TUI
+    //     plugin uses to show a toast + sidebar status. Never echoed.
+    const fallbackBlock = response.content.find((b: any) => b.type === "fallback") as any
+    const sticky =
+      !fallbackBlock && fallbacksSent && response.model && response.model !== this.apiModelId
+    let pendingMeta: Record<string, any> | undefined
+    if (fallbackBlock) {
+      pendingMeta = {
+        fallback: { from: fallbackBlock.from, to: fallbackBlock.to },
+        servedBy: {
+          from: fallbackBlock.from?.model ?? this.apiModelId,
+          to: fallbackBlock.to?.model ?? "unknown",
+          kind: "fallback",
+        },
+      }
+    } else if (sticky) {
+      pendingMeta = {
+        servedBy: { from: this.apiModelId, to: response.model, kind: "sticky" },
+      }
     }
 
     const content: LanguageModelV3Content[] = []
 
+    // Attach pending fallback metadata to the first content part after the
+    // fallback block (or the first part at all for sticky turns).
+    const takeMeta = () => {
+      const meta = pendingMeta
+      pendingMeta = undefined
+      return meta
+    }
+
+    let seenFallbackBlock = false
     for (const block of response.content) {
       switch (block.type) {
-        case "text":
-          content.push({ type: "text", text: block.text })
+        case "text": {
+          const meta = seenFallbackBlock || sticky ? takeMeta() : undefined
+          content.push({
+            type: "text",
+            text: block.text,
+            ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+          })
           break
-        case "tool_use":
+        }
+        case "tool_use": {
+          const meta = seenFallbackBlock || sticky ? takeMeta() : undefined
           content.push({
             type: "tool-call",
             toolCallId: block.id,
             toolName: toOpencodeToolName(block.name),
             input: JSON.stringify(block.input),
+            ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
           })
           break
+        }
         default: {
           const anyBlock = block as any
-          if (anyBlock.type === "thinking" && anyBlock.thinking) {
+          if (anyBlock.type === "fallback") {
+            seenFallbackBlock = true
+          } else if (anyBlock.type === "thinking" && anyBlock.thinking) {
+            const extra = seenFallbackBlock || sticky ? takeMeta() : undefined
+            const meta = {
+              ...(anyBlock.signature ? { signature: anyBlock.signature } : {}),
+              ...extra,
+            }
             content.push({
               type: "reasoning",
               text: anyBlock.thinking,
-              providerMetadata: anyBlock.signature
-                ? { anthropic: { signature: anyBlock.signature } }
-                : undefined,
+              providerMetadata: Object.keys(meta).length > 0 ? { anthropic: meta } : undefined,
             })
           }
           break
@@ -474,7 +576,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
   }
 
   async doStream(options: LanguageModelV3CallOptions): Promise<DoStreamResult> {
-    const { params, warnings } = this.buildParams(options)
+    const { params, warnings, needsFallbackBetas } = this.buildParams(options)
 
     let anthropicStream
     try {
@@ -483,7 +585,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           ...params,
           stream: true,
         } as Anthropic.MessageCreateParamsStreaming,
-        this.buildRequestOptions(options.abortSignal),
+        this.buildRequestOptions(options.abortSignal, needsFallbackBetas),
       )
     } catch (error) {
       // Anthropic rejects assistant message prefill on OAuth-routed requests.
@@ -521,7 +623,12 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       handleApiError(error)
     }
 
-    const stream = convertStream(anthropicStream as any, this.modelId)
+    const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
+    const stream = convertStream(anthropicStream as any, this.modelId, {
+      apiModelId: this.apiModelId,
+      fallbacksEnabled: fallbacksSent,
+      fallbackModel: fallbacksSent ? params.fallbacks[0].model : undefined,
+    })
 
     const wrappedStream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {

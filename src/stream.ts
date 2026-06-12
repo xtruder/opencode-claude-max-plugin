@@ -13,6 +13,39 @@ interface ContentBlockState {
   argsText?: string
   // thinking specific
   signature?: string
+  // fallback metadata attached to this block (see StreamContext.pendingMeta)
+  fallbackMeta?: Record<string, any>
+}
+
+/**
+ * Options and mutable state for one streamed response.
+ *
+ * Server-side fallback (Fable 5 safety refusals → Opus 4.8) surfaces in two
+ * ways that we translate into part metadata:
+ *
+ *   - A `fallback` content block (content_block_start/stop, no deltas) marks
+ *     the hop where the declining model's output gives way to the fallback
+ *     model. We don't emit a part for it; instead we carry two keys on the
+ *     NEXT block's part metadata (OpenCode persists part metadata and syncs
+ *     it to the TUI — the same round trip thinking signatures use):
+ *       anthropic.fallback — {from, to}; prompt.ts re-inserts the block into
+ *         history verbatim. Position is load-bearing for thinking
+ *         verification, so it must precede exactly this block.
+ *       anthropic.servedBy — {from, to, kind} display-only notice for the
+ *         TUI plugin (toast + sidebar). Never echoed back.
+ *   - Sticky-routed follow-up turns carry no block; message_start announcing
+ *     a different model than requested is the signal. servedBy (kind
+ *     "sticky") attaches to the first content block.
+ */
+interface StreamContext {
+  /** Model ID requested by the caller (without -1m suffix). */
+  apiModelId: string
+  /** Whether the request carried a `fallbacks` chain. */
+  fallbacksEnabled: boolean
+  /** First fallback model — used for error wording when the chain refuses. */
+  fallbackModel?: string
+  /** Metadata waiting to be attached to the next content block. */
+  pendingMeta?: Record<string, any>
 }
 
 let idCounter = 0
@@ -25,17 +58,17 @@ function generateId(): string {
  * Mirrors model.ts:refusalError — kept local to avoid a circular import
  * (model.ts imports this module).
  */
-function buildRefusalError(stopDetails: any): Error {
+function buildRefusalError(stopDetails: any, fallbackModel?: string): Error {
   const category = stopDetails?.category ?? null
   const explanation = stopDetails?.explanation ?? null
   const categoryNote = category ? ` (category: ${category})` : ""
   const detail = explanation
     ? explanation
     : "Claude Fable 5's safety classifiers declined this request."
-  return new Error(
-    `Claude Fable 5 refused this request${categoryNote}. ${detail} ` +
-      `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`,
-  )
+  const hint = fallbackModel
+    ? `The configured fallback model (${fallbackModel}) also refused.`
+    : `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`
+  return new Error(`Claude Fable 5 refused this request${categoryNote}. ${detail} ${hint}`)
 }
 
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
@@ -58,8 +91,14 @@ function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3
 export function convertStream(
   anthropicStream: AsyncIterable<MessageStreamEvent>,
   modelId: string,
+  context?: Partial<StreamContext>,
 ): ReadableStream<LanguageModelV3StreamPart> {
   const blockStates = new Map<number, ContentBlockState>()
+  const ctx: StreamContext = {
+    apiModelId: context?.apiModelId ?? modelId,
+    fallbacksEnabled: context?.fallbacksEnabled ?? false,
+    fallbackModel: context?.fallbackModel,
+  }
   let inputTokens: number | undefined
   let outputTokens: number | undefined
   let cachedInputTokens: number | undefined
@@ -69,7 +108,7 @@ export function convertStream(
     async start(controller) {
       try {
         for await (const event of anthropicStream) {
-          const parts = processEvent(event, blockStates, modelId)
+          const parts = processEvent(event, blockStates, modelId, ctx)
           if (event.type === "message_start" && event.message.usage) {
             const u = event.message.usage as any
             inputTokens = u.input_tokens
@@ -80,12 +119,16 @@ export function convertStream(
             const delta = event as any
             outputTokens = delta.usage?.output_tokens
             // Fable 5 safety refusal arrives mid-stream as stop_reason
-            // "refusal". Surface it as a stream error so the caller gets a
+            // "refusal". With a fallbacks chain this only happens when every
+            // hop refused. Surface it as a stream error so the caller gets a
             // clear message instead of a silently truncated/empty response.
             if (delta.delta?.stop_reason === "refusal") {
               controller.enqueue({
                 type: "error",
-                error: buildRefusalError(delta.delta?.stop_details),
+                error: buildRefusalError(
+                  delta.delta?.stop_details,
+                  ctx.fallbacksEnabled ? ctx.fallbackModel : undefined,
+                ),
               })
             }
             const finishReason = mapFinishReason(delta.delta?.stop_reason)
@@ -129,11 +172,21 @@ function processEvent(
   event: MessageStreamEvent,
   blockStates: Map<number, ContentBlockState>,
   modelId: string,
+  ctx: StreamContext,
 ): LanguageModelV3StreamPart[] {
   const parts: LanguageModelV3StreamPart[] = []
 
   switch (event.type) {
     case "message_start": {
+      // Sticky-routed fallback: the server routed this turn directly to the
+      // fallback model (no fallback block follows). Surface a display-only
+      // servedBy notice on the first content block.
+      const servedModel = event.message.model as string | undefined
+      if (ctx.fallbacksEnabled && servedModel && servedModel !== ctx.apiModelId) {
+        ctx.pendingMeta = {
+          servedBy: { from: ctx.apiModelId, to: servedModel, kind: "sticky" },
+        }
+      }
       parts.push({
         type: "response-metadata",
         id: event.message.id,
@@ -147,14 +200,48 @@ function processEvent(
       const index = event.index
       const block = event.content_block as any
 
-      if (block.type === "text") {
+      // Take any pending fallback metadata — it attaches to the first
+      // content block following the fallback boundary (or the first block
+      // at all for sticky turns).
+      const takeMeta = () => {
+        const meta = ctx.pendingMeta
+        ctx.pendingMeta = undefined
+        return meta
+      }
+
+      if (block.type === "fallback") {
+        // Boundary between the declining model's output and the fallback
+        // model's. No part is emitted; the block rides the next block's
+        // metadata so prompt.ts can re-insert it at the exact position
+        // (load-bearing for thinking verification chains).
+        ctx.pendingMeta = {
+          fallback: { from: block.from, to: block.to },
+          servedBy: {
+            from: block.from?.model ?? ctx.apiModelId,
+            to: block.to?.model ?? "unknown",
+            kind: "fallback",
+          },
+        }
+      } else if (block.type === "text") {
         const id = generateId()
-        blockStates.set(index, { type: "text", id })
-        parts.push({ type: "text-start", id })
+        const meta = takeMeta()
+        blockStates.set(index, { type: "text", id, fallbackMeta: meta })
+        // Attach at text-start: OpenCode persists text part metadata from
+        // the start/delta events only (not text-end).
+        parts.push({
+          type: "text-start",
+          id,
+          ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+        })
       } else if (block.type === "thinking") {
         const id = generateId()
-        blockStates.set(index, { type: "thinking", id })
-        parts.push({ type: "reasoning-start", id })
+        const meta = takeMeta()
+        blockStates.set(index, { type: "thinking", id, fallbackMeta: meta })
+        parts.push({
+          type: "reasoning-start",
+          id,
+          ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+        })
       } else if (block.type === "tool_use") {
         // Use the Anthropic tool_use ID as the stream block ID
         // so tool-input-start `id` matches tool-call `toolCallId`
@@ -167,6 +254,7 @@ function processEvent(
           toolUseId: toolId,
           toolName,
           argsText: "",
+          fallbackMeta: takeMeta(),
         })
         parts.push({
           type: "tool-input-start",
@@ -218,14 +306,17 @@ function processEvent(
       if (state.type === "text") {
         parts.push({ type: "text-end", id: state.id })
       } else if (state.type === "thinking") {
+        // OpenCode's processor overwrites reasoning part metadata with the
+        // reasoning-end providerMetadata, so signature and fallback metadata
+        // must be emitted together here.
+        const meta = {
+          ...(state.signature ? { signature: state.signature } : {}),
+          ...state.fallbackMeta,
+        }
         parts.push({
           type: "reasoning-end",
           id: state.id,
-          ...(state.signature
-            ? {
-                providerMetadata: { anthropic: { signature: state.signature } },
-              }
-            : {}),
+          ...(Object.keys(meta).length > 0 ? { providerMetadata: { anthropic: meta } } : {}),
         })
       } else if (state.type === "tool_use") {
         parts.push({ type: "tool-input-end", id: state.id })
@@ -235,6 +326,7 @@ function processEvent(
           toolCallId: state.toolUseId!,
           toolName: state.toolName!,
           input: state.argsText || "{}",
+          ...(state.fallbackMeta ? { providerMetadata: { anthropic: state.fallbackMeta } } : {}),
         })
       }
 

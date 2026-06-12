@@ -5,7 +5,7 @@ import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
 import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
-import { AnthropicSDKModel } from "./model.ts"
+import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
 export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
@@ -257,8 +257,10 @@ function buildPluginModels(isOAuth: boolean) {
      * effort levels as Opus 4.7/4.8 (low/medium/high/xhigh/max).
      *
      * Safety classifiers can decline requests in cyber/bio/frontier_llm/reasoning_extraction
-     * domains, returning stop_reason: "refusal" (HTTP 200). Anthropic recommends falling
-     * back to Claude Opus 4.8 for those — handled separately (see RESEARCH.md / model.ts).
+     * domains, returning stop_reason: "refusal" (HTTP 200). Per Anthropic's recommendation
+     * we fall back to Claude Opus 4.8 server-side (`refusalFallback` option → `fallbacks`
+     * request param). Disable with `"refusalFallback": false` in the model options of your
+     * opencode.json, or point it at a different model. See RESEARCH.md / model.ts.
      */
     "claude-fable-5": {
       name: "Claude Fable 5",
@@ -272,7 +274,7 @@ function buildPluginModels(isOAuth: boolean) {
         input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
         output: ["text"] as Array<"text">,
       },
-      options: { effort: "medium" },
+      options: { effort: "medium", refusalFallback: "claude-opus-4-8" },
       ...opus47Variants,
     },
   }
@@ -455,6 +457,28 @@ export function createAnthropicSDK(
       init = { ...init, headers: reqHeaders }
     }
 
+    // Server-side fallback betas (any auth mode). model.ts sets an internal
+    // marker header when the request carries a `fallbacks` chain or echoes a
+    // `fallback` block in history — it knows both structurally, so no body
+    // sniffing is needed here. The marker is stripped before sending.
+    // fallback-credit-2026-06-01 refunds the prompt-cache cost of the
+    // declined hop on retries.
+    {
+      const reqHeaders = new Headers(init?.headers)
+      if (reqHeaders.has(FALLBACK_BETAS_HEADER)) {
+        reqHeaders.delete(FALLBACK_BETAS_HEADER)
+        const betas = (reqHeaders.get("anthropic-beta") ?? "")
+          .split(",")
+          .map((beta) => beta.trim())
+          .filter(Boolean)
+        for (const beta of ["server-side-fallback-2026-06-01", "fallback-credit-2026-06-01"]) {
+          if (!betas.includes(beta)) betas.push(beta)
+        }
+        reqHeaders.set("anthropic-beta", betas.join(","))
+        init = { ...init, headers: reqHeaders }
+      }
+    }
+
     const resp = await baseFetch(url, init)
 
     // Cache ratelimit usage headers from every response
@@ -548,10 +572,30 @@ export const anthropicSDKPlugin: Plugin = async () => {
       // Plugin provides defaults; config-level settings take priority.
       // This allows .opencode/opencode.json to override npm (e.g. file://)
       // or individual model settings while the plugin provides the base.
+      //
+      // Models are merged per-entry (not replaced wholesale): a user who
+      // tweaks one option on one model — e.g. disabling the Fable 5 refusal
+      // fallback with `"claude-fable-5": { "options": { "refusalFallback":
+      // false } }` — must not lose the other models or the rest of that
+      // model's definition.
+      const userProvider = (cfg.provider[PROVIDER_ID] ?? {}) as Record<string, any>
+      const defaultModels: Record<string, any> = buildPluginModels(isOAuth)
+      const models: Record<string, any> = { ...defaultModels }
+      for (const [modelID, userModel] of Object.entries(userProvider.models ?? {})) {
+        const base = defaultModels[modelID]
+        models[modelID] = base
+          ? {
+              ...base,
+              ...(userModel as Record<string, any>),
+              options: { ...base.options, ...(userModel as any)?.options },
+              variants: { ...base.variants, ...(userModel as any)?.variants },
+            }
+          : userModel
+      }
       cfg.provider[PROVIDER_ID] = {
         npm: PACKAGE_NAME,
-        models: buildPluginModels(isOAuth),
-        ...cfg.provider[PROVIDER_ID],
+        ...userProvider,
+        models,
       }
     },
     "experimental.chat.system.transform": async (input, output) => {

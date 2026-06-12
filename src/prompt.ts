@@ -89,6 +89,23 @@ function convertAssistantMessage(
   const content: AnthropicContentBlock[] = []
 
   for (const part of message.content) {
+    // Server-side fallback: re-insert the `fallback` block before the part
+    // it was attached to (stream.ts/model.ts attach it to the first block
+    // after the boundary). Anthropic requires the assistant turn to be
+    // echoed verbatim — the block's position separates the declining and
+    // serving models' thinking verification chains. The display-only
+    // `servedBy` metadata is intentionally not echoed.
+    const fallback =
+      (part as any).providerMetadata?.anthropic?.fallback ??
+      (part as any).providerOptions?.anthropic?.fallback
+    if (fallback?.from?.model && fallback?.to?.model) {
+      content.push({
+        type: "fallback",
+        from: { model: fallback.from.model },
+        to: { model: fallback.to.model },
+      } as any)
+    }
+
     switch (part.type) {
       case "text":
         if (part.text.length > 0) {
