@@ -12,7 +12,6 @@ import { resolve } from "node:path"
 const root = resolve(import.meta.dirname, "..")
 const buildEntry = `file://${root}/build/index.js`
 const serverEntry = `file://${root}/build/server.js`
-const packageRoot = `file://${root}`
 
 const config = {
   $schema: "https://opencode.ai/config.json",

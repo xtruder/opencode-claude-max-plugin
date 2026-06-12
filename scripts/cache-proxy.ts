@@ -144,22 +144,22 @@ http
     req.on("data", (d) => chunks.push(d))
     req.on("end", async () => {
       const body = Buffer.concat(chunks).toString("utf8")
-      let parsed: any = {}
+      let reqJson: any = {}
       try {
-        parsed = JSON.parse(body)
+        reqJson = JSON.parse(body)
       } catch {}
 
       turn++
       const t = turn
-      const model = parsed.model ?? "?"
+      const model = reqJson.model ?? "?"
 
       // Inspect cache_control placement
-      const topLevelCC = parsed.cache_control ?? null
-      const sysBlocks = Array.isArray(parsed.system) ? parsed.system : []
+      const topLevelCC = reqJson.cache_control ?? null
+      const sysBlocks = Array.isArray(reqJson.system) ? reqJson.system : []
       const sysCC = sysBlocks
         .map((b: any, i: number) => (b.cache_control ? i : -1))
         .filter((x: number) => x >= 0)
-      const msgs = parsed.messages ?? []
+      const msgs = reqJson.messages ?? []
       const msgCC: string[] = []
       let totalBlocks = 0
       msgs.forEach((m: any, i: number) => {
