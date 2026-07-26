@@ -112,27 +112,25 @@ function convertAssistantMessage(
           content.push({ type: "text", text: part.text })
         }
         break
-      case "reasoning":
-        {
-          // Map reasoning to Anthropic thinking blocks
-          // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
-          // or providerOptions (set by the caller)
-          const signature =
-            (part as any).providerMetadata?.anthropic?.signature ??
-            (part as any).providerOptions?.anthropic?.signature ??
-            ""
-          if (signature) {
-            content.push({
-              type: "thinking",
-              thinking: part.text,
-              signature,
-            } as any)
-          }
-          // No signature → skip the block entirely. Anthropic rejects both
-          // empty signatures and empty redacted_thinking data.
-          break
+      case "reasoning": {
+        // Map reasoning to Anthropic thinking blocks
+        // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
+        // or providerOptions (set by the caller)
+        const signature =
+          (part as any).providerMetadata?.anthropic?.signature ??
+          (part as any).providerOptions?.anthropic?.signature ??
+          ""
+        if (signature) {
+          content.push({
+            type: "thinking",
+            thinking: part.text,
+            signature,
+          } as any)
         }
+        // No signature → skip the block entirely. Anthropic rejects both
+        // empty signatures and empty redacted_thinking data.
         break
+      }
       case "tool-call":
         content.push({
           type: "tool_use",

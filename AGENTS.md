@@ -141,16 +141,16 @@ grep -E "REQ|RESP" /tmp/opencode/cache-proxy/proxy.log | grep -v "haiku\|429"
 
 ```bash
 # Continue the last session (any model — model gets switched per invocation)
-opencode run -m "anthropic-sdk/claude-opus-4-8" -c "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5" -c "Just say OK"
 
 # Continue a specific session by id
-opencode run -m "anthropic-sdk/claude-opus-4-8" --session ses_XXXX "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5" --session ses_XXXX "Just say OK"
 
 # Fork before continuing (creates a new session branched from the target)
-opencode run -m "anthropic-sdk/claude-opus-4-8" --session ses_XXXX --fork "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5" --session ses_XXXX --fork "Just say OK"
 
 # Pin a fresh session to a title (otherwise opencode auto-generates one)
-opencode run -m "anthropic-sdk/claude-opus-4-8" --title "cache-repro" "First message"
+opencode run -m "anthropic-sdk/claude-opus-5" --title "cache-repro" "First message"
 ```
 
 **Caveat**: continuing a session that contains coding history will often cause the model to keep coding. For pure cache-behavior tests, either fork a clean session ("capital of France" style) or send a very explicit no-op instruction like `"Just say OK and nothing else. Do not write any code or edit any files."`
@@ -207,7 +207,7 @@ src/
 ├── tool-names.ts         # Bidirectional tool name mapping (OpenCode ↔ Claude Code)
 ├── credentials.ts        # Claude Code OAuth credentials reader + CLI refresh
 ├── usage.ts              # Usage types, fetchUsage(), cachedUsage, formatReset()
-├── cch.ts                # CCH request signing (xxHash64 body integrity hash)
+├── cch.ts                # Legacy CCH research utility (removed from CC 2.1.220 requests)
 ├── credentials.test.ts   # Unit + integration tests for credentials
 ├── index.test.ts         # Tests for createAnthropicSDK factory
 ├── model.test.ts         # Integration tests for model (API calls)

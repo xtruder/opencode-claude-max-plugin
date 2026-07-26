@@ -74,33 +74,30 @@ function handleApiError(error: unknown): never {
 }
 
 /**
- * Build a clear error for a Fable 5 / Mythos-class safety refusal.
+ * Build a clear error for a classifier refusal.
  *
- * Fable 5's safety classifiers can decline a request — the Messages API
+ * Fable 5 and Opus 5 safety classifiers can decline a request — the Messages API
  * returns this as a *successful* HTTP 200 with `stop_reason: "refusal"`,
  * empty `content`, and a `stop_details` object naming the policy area.
- * Categories: cyber, bio, frontier_llm, reasoning_extraction (may be null).
+ * Categories include cyber, bio, frontier_llm, reasoning_extraction, and
+ * general_harms (or null when no named category applies).
  *
- * For now we surface this as an error so the user gets a clear message
- * instead of an empty/confusing response. A future enhancement is to
- * automatically retry on a fallback model (Claude Opus 4.8), per Anthropic's
- * recommended pattern. See RESEARCH.md.
+ * A refusal only reaches this path when fallback routing is disabled or every
+ * model in the configured chain also refuses.
  */
 export function isRefusal(stopReason: string | null | undefined): boolean {
   return stopReason === "refusal"
 }
 
-export function refusalError(stopDetails: any, fallbackModel?: string): Error {
+export function refusalError(stopDetails: any, model = "Claude", fallbackModel?: string): Error {
   const category = stopDetails?.category ?? null
   const explanation = stopDetails?.explanation ?? null
   const categoryNote = category ? ` (category: ${category})` : ""
-  const detail = explanation
-    ? explanation
-    : "Claude Fable 5's safety classifiers declined this request."
+  const detail = explanation ? explanation : `${model}'s safety classifiers declined this request.`
   const hint = fallbackModel
     ? `The configured fallback model (${fallbackModel}) also refused.`
     : `Retry with a fallback model such as anthropic-sdk/claude-opus-4-8.`
-  return new Error(`Claude Fable 5 refused this request${categoryNote}. ${detail} ${hint}`)
+  return new Error(`${model} refused this request${categoryNote}. ${detail} ${hint}`)
 }
 
 function mapFinishReason(stopReason: string | null | undefined): LanguageModelV3FinishReason {
@@ -138,7 +135,7 @@ export const FALLBACK_BETAS_HEADER = "x-anthropic-sdk-fallback-betas"
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.173.d11; cc_entrypoint=sdk-cli; cch=00000;",
+  text: "x-anthropic-billing-header: cc_version=2.1.220.52c; cc_entrypoint=sdk-cli;",
 }
 
 /**
@@ -174,7 +171,7 @@ function supportsContextManagement(apiModelId: string): boolean {
  * Whether the model uses always-on adaptive thinking driven by
  * `output_config.effort` rather than extended thinking (`type: "enabled"`).
  *
- * These models (Opus 4.7, Opus 4.8, Fable 5) default `thinking.display` to
+ * These models (Opus 4.7, Opus 4.8, Opus 5, Fable 5) default `thinking.display` to
  * "omitted" on the wire — i.e. thinking blocks come back with an EMPTY
  * `thinking` field (only a signature for multi-turn continuity), so the TUI
  * has nothing to render. We must send `thinking: { display: "summarized" }`
@@ -186,6 +183,7 @@ function usesAdaptiveThinking(apiModelId: string): boolean {
   return (
     apiModelId.includes("claude-opus-4-7") ||
     apiModelId.includes("claude-opus-4-8") ||
+    apiModelId.includes("claude-opus-5") ||
     apiModelId.includes("claude-fable-5")
   )
 }
@@ -303,12 +301,17 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       // Claude Code always sends metadata with user_id
       params.metadata = buildMetadata()
 
-      // Claude Code sends temperature: 1 and output_config for models that support it
-      // Haiku and older models don't support the effort parameter
+      // Claude Code sends output_config for models that support effort. Claude
+      // 5 models omit sampling parameters; older effort models send temperature 1.
       const supportsEffort =
         !this.apiModelId.includes("haiku") && !this.apiModelId.includes("claude-3-")
       if (supportsEffort) {
-        if (options.temperature == null) {
+        const omitsSamplingParameters =
+          this.apiModelId.includes("claude-opus-5") ||
+          this.apiModelId.includes("claude-sonnet-5") ||
+          this.apiModelId.includes("claude-fable-5") ||
+          this.apiModelId.includes("claude-mythos-5")
+        if (options.temperature == null && !omitsSamplingParameters) {
           params.temperature = 1
         }
         // Read effort from providerOptions (set by OpenCode variants or user config).
@@ -319,7 +322,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         const effort = providerOpts?.effort ?? "medium"
         params.output_config = { effort }
 
-        // Adaptive-thinking models (Opus 4.7/4.8, Fable 5) default
+        // Adaptive-thinking models (Opus 4.7/4.8/5, Fable 5) default
         // `thinking.display` to "omitted" on the wire, returning empty thinking
         // blocks (signature only) — nothing for the TUI to render. Request the
         // summarized chain-of-thought explicitly. A user-supplied `thinking`
@@ -394,9 +397,9 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       }
       if (anthropicOptions.metadata) params.metadata = anthropicOptions.metadata
 
-      // Server-side fallback for safety refusals (Fable 5 → Opus 4.8).
-      // Configured via model options: `refusalFallback: "claude-opus-4-8"`
-      // (set as the default on claude-fable-5). Users disable it with
+      // Server-side fallback for classifier refusals. A model ID selects an
+      // explicit target; "default" asks Anthropic to choose by refusal category.
+      // Users disable it with
       // `refusalFallback: false` in their opencode.json model options.
       // The API retries declined requests on the fallback model within one
       // round trip; the fetch wrapper adds the server-side-fallback betas
@@ -405,7 +408,10 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         typeof anthropicOptions.refusalFallback === "string" &&
         anthropicOptions.refusalFallback.length > 0
       ) {
-        params.fallbacks = [{ model: anthropicOptions.refusalFallback }]
+        params.fallbacks =
+          anthropicOptions.refusalFallback === "default"
+            ? "default"
+            : [{ model: anthropicOptions.refusalFallback }]
       }
     }
 
@@ -514,16 +520,21 @@ export class AnthropicSDKModel implements LanguageModelV3 {
     // The turn's full content spans all paused segments plus the final one.
     const responseContent = [...pausedBlocks, ...response.content] as typeof response.content
 
-    const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
+    const fallbacksSent =
+      params.fallbacks === "default" ||
+      (Array.isArray(params.fallbacks) && params.fallbacks.length > 0)
+    const fallbackModel =
+      params.fallbacks === "default" ? "Anthropic's default fallback" : params.fallbacks?.[0]?.model
 
-    // Fable 5 safety refusal: HTTP 200 with stop_reason "refusal" and empty
+    // Classifier refusal: HTTP 200 with stop_reason "refusal" and empty
     // content. With server-side fallback enabled this only happens when the
     // whole chain refused. Surface as a clear error rather than an empty
     // response.
     if (isRefusal(response.stop_reason)) {
       throw refusalError(
         (response as any).stop_details,
-        fallbacksSent ? params.fallbacks[0].model : undefined,
+        this.apiModelId,
+        fallbacksSent ? fallbackModel : undefined,
       )
     }
 
@@ -703,11 +714,15 @@ export class AnthropicSDKModel implements LanguageModelV3 {
       ) as Promise<AsyncIterable<any>>
     const continued = withPauseTurnContinuation(anthropicStream as any, params, makeRequest)
 
-    const fallbacksSent = Array.isArray(params.fallbacks) && params.fallbacks.length > 0
+    const fallbacksSent =
+      params.fallbacks === "default" ||
+      (Array.isArray(params.fallbacks) && params.fallbacks.length > 0)
+    const fallbackModel =
+      params.fallbacks === "default" ? "Anthropic's default fallback" : params.fallbacks?.[0]?.model
     const stream = convertStream(continued, this.modelId, {
       apiModelId: this.apiModelId,
       fallbacksEnabled: fallbacksSent,
-      fallbackModel: fallbacksSent ? params.fallbacks[0].model : undefined,
+      fallbackModel: fallbacksSent ? fallbackModel : undefined,
     })
 
     const wrappedStream = new ReadableStream<LanguageModelV3StreamPart>({

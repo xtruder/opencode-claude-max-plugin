@@ -8,7 +8,14 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { clearCredentialCache } from "./credentials.ts"
-import { createAnthropicSDK } from "./index.ts"
+import {
+  CLAUDE_CODE_FABLE5_SYSTEM_PROMPT,
+  CLAUDE_CODE_NEW_SYSTEM_PROMPT,
+  CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
+  CLAUDE_CODE_SYSTEM_PROMPT,
+  createAnthropicSDK,
+  selectClaudePromptForModel,
+} from "./index.ts"
 
 // ─── createAnthropicSDK ─────────────────────────────────────────────────────
 
@@ -76,5 +83,14 @@ describe("createAnthropicSDK", () => {
       clearCredentialCache()
       rmSync(tmpDir, { recursive: true })
     }
+  })
+})
+
+describe("selectClaudePromptForModel", () => {
+  test("uses the Opus 5 prompt only for Opus 5", () => {
+    expect(selectClaudePromptForModel("claude-opus-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-fable-5")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-sonnet-4-6")).toBe(CLAUDE_CODE_SYSTEM_PROMPT)
   })
 })

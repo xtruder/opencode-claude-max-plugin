@@ -1,8 +1,9 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import type { Plugin } from "@opencode-ai/plugin"
 import Anthropic from "@anthropic-ai/sdk"
-import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
+import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt" with { type: "text" }
 import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: "text" }
+import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
 import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
@@ -10,25 +11,25 @@ import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
 export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
 export const CLAUDE_CODE_NEW_SYSTEM_PROMPT = CLAUDE_NEW_SYSTEM_PROMPT
+export const CLAUDE_CODE_OPUS5_SYSTEM_PROMPT = CLAUDE_OPUS5_SYSTEM_PROMPT
+export const CLAUDE_CODE_FABLE5_SYSTEM_PROMPT = CLAUDE_FABLE5_SYSTEM_PROMPT
 
 /**
  * Select the Claude Code system prompt that matches the given model.
  *
- * Claude Code ships per-model prompts: the newer flagships (Opus 4.8,
- * Fable 5) get a condensed "Harness" prompt that trusts the model's
- * defaults; everything else (Opus 4.7, Sonnet 4.6, Haiku 4.5, Opus 4.6)
- * gets the long-form prompt with explicit behavior rules.
- *
- * Opus 4.8 and Fable 5 share one condensed prompt here. Claude Code 2.1.173
- * sends Fable 5 a longer variant (security steering, a verbose
- * "Communicating" section, a Fable 5 identity blurb, and CLI-only session
- * items), but the safety classifiers are server-side rather than
- * prompt-driven and the CLI-specific guidance does not apply to OpenCode —
- * so we distill it down to the shared base. The verbatim capture lives in
- * src/fixtures/claudecode-system-fable5-original.txt.
+ * Claude Code ships per-model prompts. Opus 5 gets its current condensed
+ * harness with model-specific scope, delivery, and correction guidance;
+ * Fable 5 gets its communication guidance; Opus 4.8 gets the
+ * shorter earlier harness. Older models get the long-form prompt.
  */
 export function selectClaudePromptForModel(modelId: string): string {
-  if (modelId.includes("opus-4-8") || modelId.includes("fable-5")) {
+  if (modelId.includes("opus-5")) {
+    return CLAUDE_OPUS5_SYSTEM_PROMPT
+  }
+  if (modelId.includes("fable-5")) {
+    return CLAUDE_FABLE5_SYSTEM_PROMPT
+  }
+  if (modelId.includes("opus-4-8")) {
     return CLAUDE_NEW_SYSTEM_PROMPT
   }
   return CLAUDE_MAIN_SYSTEM_PROMPT
@@ -38,22 +39,16 @@ export function selectClaudePromptForModel(modelId: string): string {
  * Claude Code CLI version to impersonate.
  * Used in user-agent, billing header, and x-stainless-package-version.
  */
-const CLAUDE_CODE_VERSION = "2.1.173"
+const CLAUDE_CODE_VERSION = "2.1.220"
 
 /**
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
  *
- * Captured from Claude Code 2.1.154 (2026-05-28):
+ * Captured from Claude Code 2.1.220 (2026-07-26). Model-conditional flags
+ * are appended in wrappedFetch so their order matches the CLI.
  *   - thinking-token-count-2026-05-13: estimated_tokens in thinking_delta
  *     stream events (progress hint when display="omitted")
- *   - advisor-tool-2026-03-01: server-side advisor_20260301 tool
- *   - extended-cache-ttl-2025-04-11: ttl:"1h" on cache_control blocks
- *
- * Model-conditional flags (added in wrappedFetch based on request body):
- *   - mid-conversation-system-2026-04-07: Opus 4.8 only — allows role:"system"
- *     messages in messages[] after user turns
- *   - effort-2025-11-24: Opus/Sonnet only — Haiku does not support effort
  */
 const OAUTH_BETAS = [
   "claude-code-20250219",
@@ -62,8 +57,6 @@ const OAUTH_BETAS = [
   "thinking-token-count-2026-05-13",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
-  "advisor-tool-2026-03-01",
-  "extended-cache-ttl-2025-04-11",
 ]
 
 /**
@@ -247,6 +240,29 @@ function buildPluginModels(isOAuth: boolean) {
       ...opus47Variants,
     },
     /**
+     * Opus 5 — Anthropic's latest Opus model (released 2026-07-24).
+     *
+     * 1M context, 128K output, and $5/$25 per MTok. Adaptive thinking is on
+     * by default and supports low/medium/high/xhigh/max effort. Opus 5's
+     * safety classifiers can decline requests, so use Anthropic's default
+     * server-side fallback routing unless explicitly disabled.
+     */
+    "claude-opus-5": {
+      name: "Claude Opus 5",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: false,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("opus"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "high", refusalFallback: "default" },
+      ...opus47Variants,
+    },
+    /**
      * Fable 5 — Anthropic's most capable widely released model (released 2026-06-09).
      *
      * First publicly available Mythos-class model; sits above the Opus family.
@@ -267,7 +283,7 @@ function buildPluginModels(isOAuth: boolean) {
       reasoning: true,
       tool_call: true,
       attachment: true,
-      temperature: true,
+      temperature: false,
       limit: { context: 1_000_000, output: 128_000 },
       cost: cost("fable"),
       modalities: {
@@ -398,23 +414,6 @@ export function createAnthropicSDK(
       }
     }
 
-    // CCH request signing: compute xxHash64 body integrity hash and replace
-    // the cch=00000 placeholder before sending. Only applies to OAuth requests
-    // hitting /v1/messages that contain the billing header placeholder.
-    if (
-      auth.isOAuth &&
-      init?.body &&
-      typeof init.body === "string" &&
-      hasCchPlaceholder(init.body)
-    ) {
-      try {
-        const cch = await computeCch(init.body)
-        init = { ...init, body: replaceCchPlaceholder(init.body, cch) }
-      } catch {
-        // Never let CCH signing crash the fetch — send with placeholder if it fails
-      }
-    }
-
     // Claude Code only opts into long-context routing dynamically for very
     // large requests. Sending this beta unconditionally causes subscription
     // errors on normal requests for tiers/models that do not support it.
@@ -437,20 +436,24 @@ export function createAnthropicSDK(
       const modelMatch = init.body.match(/"model"\s*:\s*"([^"]+)"/)
       const model = modelMatch?.[1] ?? ""
 
-      // effort-2025-11-24: required for Opus/Sonnet output_config.effort,
-      // rejected by Haiku (which does not support effort).
-      if (!model.includes("haiku")) {
-        if (!betas.includes("effort-2025-11-24")) betas.push("effort-2025-11-24")
-      }
-
-      // mid-conversation-system-2026-04-07: Opus 4.8+ only. Older models
-      // reject unknown beta flags, so only send when actually targeting 4.8+.
-      // Fable 5 is the Mythos-class flagship that supersedes Opus 4.8 and
-      // accepts the same mid-conversation system messages.
-      if (model.includes("opus-4-8") || model.includes("fable-5")) {
+      // Match Claude Code's model flags and exact ordering.
+      if (
+        model.includes("opus-4-8") ||
+        model.includes("opus-5") ||
+        model.includes("sonnet-5") ||
+        model.includes("fable-5")
+      ) {
         if (!betas.includes("mid-conversation-system-2026-04-07")) {
           betas.push("mid-conversation-system-2026-04-07")
         }
+      }
+      for (const beta of [
+        "advisor-tool-2026-03-01",
+        ...(!model.includes("haiku") ? ["effort-2025-11-24"] : []),
+        "fallback-credit-2026-06-01",
+        "extended-cache-ttl-2025-04-11",
+      ]) {
+        if (!betas.includes(beta)) betas.push(beta)
       }
 
       reqHeaders.set("anthropic-beta", betas.join(","))
@@ -471,7 +474,7 @@ export function createAnthropicSDK(
           .split(",")
           .map((beta) => beta.trim())
           .filter(Boolean)
-        for (const beta of ["server-side-fallback-2026-06-01", "fallback-credit-2026-06-01"]) {
+        for (const beta of ["server-side-fallback-2026-07-01", "fallback-credit-2026-06-01"]) {
           if (!betas.includes(beta)) betas.push(beta)
         }
         reqHeaders.set("anthropic-beta", betas.join(","))

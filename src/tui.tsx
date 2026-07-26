@@ -135,7 +135,7 @@ function createUsageStore(pollInterval: number) {
 // ─── Fallback store ──────────────────────────────────────────────────
 
 /**
- * Watches for server-side model fallback (Fable 5 safety refusal → Opus 4.8).
+ * Watches for server-side model fallback after a classifier refusal.
  *
  * The provider attaches a display-only `anthropic.servedBy` object to part
  * metadata when a response was served by a fallback model (see stream.ts).
