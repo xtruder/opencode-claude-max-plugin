@@ -6,7 +6,7 @@ import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: 
 import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt" with { type: "text" }
 import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
-import { getCachedCredentials } from "./credentials.ts"
+import { getCachedCredentials, readClaudeCredentials } from "./credentials.ts"
 import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
 
@@ -377,10 +377,10 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
     return { apiKey: process.env.ANTHROPIC_API_KEY, isOAuth: false }
   }
 
-  // 3. Claude Code credentials file (with automatic CLI refresh)
+  // 3. Claude Code credentials file. Refresh is deferred until the first request.
   const credentialsPath =
     typeof options.credentialsPath === "string" ? options.credentialsPath : undefined
-  const creds = getCachedCredentials(credentialsPath)
+  const creds = readClaudeCredentials(credentialsPath)
   if (creds) {
     return { apiKey: null, authToken: creds.accessToken, isOAuth: true }
   }

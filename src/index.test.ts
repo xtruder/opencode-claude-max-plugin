@@ -3,7 +3,8 @@
  *
  * Run with: bun test src/index.test.ts
  */
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import * as child_process from "node:child_process"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -81,6 +82,75 @@ describe("createAnthropicSDK", () => {
       if (savedKey) {
         process.env.ANTHROPIC_API_KEY = savedKey
       }
+      clearCredentialCache()
+      rmSync(tmpDir, { recursive: true })
+    }
+  })
+
+  test("defers OAuth token refresh until the first request", async () => {
+    const tmpDir = join(tmpdir(), `test-creds-lazy-refresh-${Date.now()}`)
+    mkdirSync(tmpDir, { recursive: true })
+    const credPath = join(tmpDir, "credentials.json")
+    const refreshedToken = "sk-ant-oat01-refreshed-token"
+    writeFileSync(
+      credPath,
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "sk-ant-oat01-expired-token",
+          refreshToken: "sk-ant-ort01-test-token",
+          expiresAt: Date.now() - 60_000,
+          scopes: ["user:inference"],
+          subscriptionType: "max",
+        },
+      }),
+    )
+
+    const savedKey = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    clearCredentialCache()
+    let requestAuthorization: string | null = null
+    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+      writeFileSync(
+        credPath,
+        JSON.stringify({
+          claudeAiOauth: {
+            accessToken: refreshedToken,
+            refreshToken: "sk-ant-ort01-test-token",
+            expiresAt: Date.now() + 3_600_000,
+            scopes: ["user:inference"],
+            subscriptionType: "max",
+          },
+        }),
+      )
+      return Buffer.from("")
+    }) as any)
+
+    try {
+      const provider = createAnthropicSDK({
+        credentialsPath: credPath,
+        fetch: (async (_url, init) => {
+          requestAuthorization = new Headers(init?.headers).get("authorization")
+          return new Response('{"error":{"type":"authentication_error","message":"test"}}', {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          })
+        }) as typeof fetch,
+      })
+      expect(execSyncSpy).not.toHaveBeenCalled()
+
+      const model = provider.languageModel("claude-haiku-4-5-20251001")
+      try {
+        await model.doGenerate({
+          prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+          maxOutputTokens: 10,
+        } as any)
+      } catch {}
+
+      expect(execSyncSpy).toHaveBeenCalledTimes(1)
+      expect(requestAuthorization).toBe(`Bearer ${refreshedToken}`)
+    } finally {
+      execSyncSpy.mockRestore()
+      if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey
       clearCredentialCache()
       rmSync(tmpDir, { recursive: true })
     }
