@@ -9,8 +9,8 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
 - **Matches Claude Code 2.1.220** — Same request format and behavior as the official CLI
 - **Prompt caching** — Multi-turn conversations cache properly, keeping costs and latency low
-- **Supported Claude models** — Opus 5, Fable 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
-- **Extended / adaptive thinking** — Full reasoning support across models, including Opus 4.7+'s adaptive thinking
+- **Supported Claude models** — Opus 5, Sonnet 5, Fable 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
+- **Extended / adaptive thinking** — Full reasoning support across models, including Claude 5 adaptive thinking
 - **Safety-refusal fallback** — Opus 5 and Fable 5 classifier refusals can fall back in the same request, with TUI notification
 - **Usage tracking** — Sidebar widget with live progress bars + `/usage` command
 - **Self-registering** — Models are registered automatically, no manual provider config needed
@@ -26,7 +26,7 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 }
 ```
 
-That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8, Opus 5, Fable 5) at startup via the OpenCode config hook. No separate `provider` block is needed.
+That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Sonnet 5, Opus 4.6, Opus 4.7, Opus 4.8, Opus 5, Fable 5) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
 Then open OpenCode and models will automatically be available under `anthropic-sdk` provider.
 
@@ -156,7 +156,7 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 - Streaming and non-streaming completions
 - Tool/function calling with Claude Code tool name mapping (`task` → `Agent`, `webfetch` → `WebFetch`, etc.)
 - MCP tool name remapping (`server_tool` → `mcp__server__tool`)
-- Extended thinking (Sonnet/Opus 4.6) and adaptive thinking (Opus 4.7+) with effort levels and multi-turn signature passthrough
+- Extended thinking (Sonnet/Opus 4.6) and adaptive thinking (Opus 4.7+, Sonnet 5) with effort levels and multi-turn signature passthrough
 - Prompt caching that holds across long, tool-heavy conversations
 - Server-side safety-refusal fallback for Opus 5 and Fable 5 (configurable, on by default)
 - Subscription rate limit detection — fails fast with a clear message instead of hanging

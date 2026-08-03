@@ -73,6 +73,7 @@ This creates `.opencode/opencode.json` (server plugin + provider) and `.opencode
 # Uses ~/.claude/.credentials.json automatically
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
 opencode run -m "anthropic-sdk/claude-sonnet-4-6" "What is 2+2?"
+opencode run -m "anthropic-sdk/claude-sonnet-5" "What is 2+2?"
 opencode run -m "anthropic-sdk/claude-opus-4-6" "What model are you?"
 ```
 
@@ -212,7 +213,7 @@ src/
 ├── index.test.ts         # Tests for createAnthropicSDK factory
 ├── model.test.ts         # Integration tests for model (API calls)
 ├── cch.test.ts           # Tests for CCH computation
-├── claudecode-system.txt  # Captured Claude Code base system prompt
+├── claudecode-system*.txt # Distilled base and model-specific Claude Code prompts
 └── fixtures/              # Captured OpenCode request data for caching tests
     └── opencode-tools.json
 
@@ -237,6 +238,7 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 7. **`anthropic-ratelimit-unified-status: over_limit`** is the authoritative signal for subscription exhaustion — do not match on error message text
 8. **Single cache breakpoint on `messages[-1].content[-1]`** for OAuth multi-turn cache to hit. Matches Claude Code's wire format. See "Prompt Caching" in RESEARCH.md
 9. **User message content must always be array-of-blocks**, never a plain string. Otherwise the same logical content gets different byte shapes turn-to-turn → cache miss
+10. **Claude 5 prompts are model-specific** — Sonnet 5, Opus 5, and Fable 5 use distinct distilled prompt files. Do not reuse one model's prompt for another. The explicit cyber-safety directive and dynamic environment/git-status tail are intentionally excluded; OpenCode appends its own environment and project instructions.
 
 ---
 

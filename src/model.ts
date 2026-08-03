@@ -171,7 +171,7 @@ function supportsContextManagement(apiModelId: string): boolean {
  * Whether the model uses always-on adaptive thinking driven by
  * `output_config.effort` rather than extended thinking (`type: "enabled"`).
  *
- * These models (Opus 4.7, Opus 4.8, Opus 5, Fable 5) default `thinking.display` to
+ * These models (Opus 4.7, Opus 4.8, Sonnet 5, Opus 5, Fable 5) default `thinking.display` to
  * "omitted" on the wire — i.e. thinking blocks come back with an EMPTY
  * `thinking` field (only a signature for multi-turn continuity), so the TUI
  * has nothing to render. We must send `thinking: { display: "summarized" }`
@@ -183,6 +183,7 @@ function usesAdaptiveThinking(apiModelId: string): boolean {
   return (
     apiModelId.includes("claude-opus-4-7") ||
     apiModelId.includes("claude-opus-4-8") ||
+    apiModelId.includes("claude-sonnet-5") ||
     apiModelId.includes("claude-opus-5") ||
     apiModelId.includes("claude-fable-5")
   )
@@ -322,7 +323,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         const effort = providerOpts?.effort ?? "medium"
         params.output_config = { effort }
 
-        // Adaptive-thinking models (Opus 4.7/4.8/5, Fable 5) default
+        // Adaptive-thinking models (Opus 4.7/4.8/5, Sonnet 5, Fable 5) default
         // `thinking.display` to "omitted" on the wire, returning empty thinking
         // blocks (signature only) — nothing for the TUI to render. Request the
         // summarized chain-of-thought explicitly. A user-supplied `thinking`

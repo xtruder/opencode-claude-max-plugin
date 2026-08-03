@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt" with { type: "text" }
 import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: "text" }
 import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt" with { type: "text" }
+import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt" with { type: "text" }
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
 import { getCachedCredentials } from "./credentials.ts"
 import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
@@ -12,17 +13,21 @@ import { cachedUsage, persistCachedUsage } from "./usage.ts"
 export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
 export const CLAUDE_CODE_NEW_SYSTEM_PROMPT = CLAUDE_NEW_SYSTEM_PROMPT
 export const CLAUDE_CODE_OPUS5_SYSTEM_PROMPT = CLAUDE_OPUS5_SYSTEM_PROMPT
+export const CLAUDE_CODE_SONNET5_SYSTEM_PROMPT = CLAUDE_SONNET5_SYSTEM_PROMPT
 export const CLAUDE_CODE_FABLE5_SYSTEM_PROMPT = CLAUDE_FABLE5_SYSTEM_PROMPT
 
 /**
  * Select the Claude Code system prompt that matches the given model.
  *
- * Claude Code ships per-model prompts. Opus 5 gets its current condensed
- * harness with model-specific scope, delivery, and correction guidance;
- * Fable 5 gets its communication guidance; Opus 4.8 gets the
- * shorter earlier harness. Older models get the long-form prompt.
+ * Claude Code ships per-model prompts. Sonnet 5 gets its current long-form
+ * harness; Opus 5 gets its condensed scope, delivery, and correction guidance;
+ * Fable 5 gets its communication guidance; Opus 4.8 gets the shorter earlier
+ * harness. Older models get the legacy long-form prompt.
  */
 export function selectClaudePromptForModel(modelId: string): string {
+  if (modelId.includes("sonnet-5")) {
+    return CLAUDE_SONNET5_SYSTEM_PROMPT
+  }
   if (modelId.includes("opus-5")) {
     return CLAUDE_OPUS5_SYSTEM_PROMPT
   }
@@ -91,6 +96,7 @@ const ZERO_COST = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
  *
  * - Haiku 4.5:       200K context, 64K output
  * - Sonnet 4.6:      200K context, 64K output
+ * - Sonnet 5:        1M context,  128K output
  * - Opus 4.6:        200K context, 128K output  (conservative, matches Claude Code default)
  * - Opus 4.6 (1M):  1M context,  128K output  (empirically confirmed: hard 1M token limit)
  *
@@ -155,6 +161,21 @@ function buildPluginModels(isOAuth: boolean) {
         medium: { effort: "medium" },
         high: { effort: "high" },
       },
+    },
+    "claude-sonnet-5": {
+      name: "Claude Sonnet 5",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: false,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("sonnet"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "high" },
+      ...opus47Variants,
     },
     "claude-opus-4-6": {
       name: "Claude Opus 4.6",

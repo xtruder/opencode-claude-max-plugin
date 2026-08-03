@@ -358,7 +358,7 @@ describe("thinking", () => {
   }, 30_000)
 })
 
-// ─── Adaptive thinking display (Opus 4.7/4.8/5, Fable 5) ─────────────────────
+// ─── Adaptive thinking display (Opus 4.7/4.8/5, Sonnet 5, Fable 5) ───────────
 //
 // These models default `thinking.display` to "omitted" on the wire, returning
 // EMPTY thinking blocks (signature only) unless we explicitly request
@@ -367,9 +367,9 @@ describe("thinking", () => {
 describe("adaptive thinking display", () => {
   if (skipUnless(isOAuth, "adaptive thinking tests require OAuth credentials")) return
 
-  test("opus-5 returns non-empty summarized reasoning text", async () => {
-    const opusModel = provider.languageModel("claude-opus-5")
-    const result = await opusModel.doStream({
+  test("sonnet-5 returns non-empty summarized reasoning text", async () => {
+    const sonnetModel = provider.languageModel("claude-sonnet-5")
+    const result = await sonnetModel.doStream({
       prompt: [
         {
           role: "user",

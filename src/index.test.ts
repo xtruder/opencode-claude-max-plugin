@@ -12,6 +12,7 @@ import {
   CLAUDE_CODE_FABLE5_SYSTEM_PROMPT,
   CLAUDE_CODE_NEW_SYSTEM_PROMPT,
   CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
+  CLAUDE_CODE_SONNET5_SYSTEM_PROMPT,
   CLAUDE_CODE_SYSTEM_PROMPT,
   createAnthropicSDK,
   selectClaudePromptForModel,
@@ -87,7 +88,11 @@ describe("createAnthropicSDK", () => {
 })
 
 describe("selectClaudePromptForModel", () => {
-  test("uses the Opus 5 prompt only for Opus 5", () => {
+  test("uses model-specific Claude 5 prompts", () => {
+    expect(selectClaudePromptForModel("claude-sonnet-5")).toBe(CLAUDE_CODE_SONNET5_SYSTEM_PROMPT)
+    expect(CLAUDE_CODE_SONNET5_SYSTEM_PROMPT).not.toContain(
+      "Assist with authorized security testing",
+    )
     expect(selectClaudePromptForModel("claude-opus-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-fable-5")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
