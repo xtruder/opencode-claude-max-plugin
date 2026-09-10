@@ -345,7 +345,8 @@ export interface AnthropicSDKProviderOptions {
 
   /**
    * Path to Claude Code credentials file.
-   * Defaults to ~/.claude/.credentials.json.
+   * Defaults to ~/.claude/.credentials.json, falling back to the macOS keychain
+   * when that file doesn't exist. An explicit path disables the keychain fallback.
    */
   credentialsPath?: string
 
@@ -377,7 +378,7 @@ function resolveAuth(options: AnthropicSDKProviderOptions): {
     return { apiKey: process.env.ANTHROPIC_API_KEY, isOAuth: false }
   }
 
-  // 3. Claude Code credentials file. Refresh is deferred until the first request.
+  // 3. Claude Code credentials (file, or macOS keychain). Refresh is deferred until the first request.
   const credentialsPath =
     typeof options.credentialsPath === "string" ? options.credentialsPath : undefined
   const creds = readClaudeCredentials(credentialsPath)

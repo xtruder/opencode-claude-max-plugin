@@ -147,7 +147,7 @@ Claude Opus 5 also has safety classifiers. Its `refusalFallback` defaults to `"d
 Credentials are resolved in order:
 
 1. **`ANTHROPIC_API_KEY` env var** or **`apiKey` provider option**
-2. **Claude Code credentials** — auto-read from `~/.claude/.credentials.json`
+2. **Claude Code credentials** — auto-read from `~/.claude/.credentials.json`, or from the macOS keychain (`Claude Code-credentials`) when that file doesn't exist
 
 For Claude Code credentials, log in via `claude` CLI first (`claude auth login`).
 

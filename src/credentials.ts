@@ -16,7 +16,7 @@ interface CredentialsFile {
 }
 
 /**
- * How long to cache credentials in memory before re-reading from disk.
+ * How long to cache credentials in memory before re-reading them.
  */
 const CREDENTIAL_CACHE_TTL_MS = 30_000
 
@@ -38,22 +38,65 @@ export function getCredentialsPath(): string {
 }
 
 /**
- * Read OAuth credentials from Claude Code's credentials file.
- * Returns null if the file doesn't exist or can't be parsed.
+ * macOS keychain service under which Claude Code stores its OAuth credentials.
  */
-export function readClaudeCredentials(path?: string): ClaudeOAuthCredentials | null {
-  const credPath = path ?? getCredentialsPath()
+const KEYCHAIN_SERVICE = "Claude Code-credentials"
 
-  if (!existsSync(credPath)) return null
-
+/**
+ * Parse a Claude Code credentials payload (same JSON shape in the file and the keychain).
+ * Returns null if the payload is malformed or has no access token.
+ */
+function parseCredentials(raw: string): ClaudeOAuthCredentials | null {
   try {
-    const raw = readFileSync(credPath, "utf-8")
     const parsed: CredentialsFile = JSON.parse(raw)
     if (!parsed.claudeAiOauth?.accessToken) return null
     return parsed.claudeAiOauth
   } catch {
     return null
   }
+}
+
+/**
+ * Read OAuth credentials from the macOS keychain, where Claude Code stores them
+ * instead of ~/.claude/.credentials.json.
+ * Returns null on other platforms, or if the entry is missing or can't be parsed.
+ */
+export function readKeychainCredentials(): ClaudeOAuthCredentials | null {
+  if (process.platform !== "darwin") return null
+
+  try {
+    const raw = execSync(`security find-generic-password -s "${KEYCHAIN_SERVICE}" -w`, {
+      timeout: 5_000,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+    return parseCredentials(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read OAuth credentials from Claude Code's credentials file, falling back to
+ * the macOS keychain when the default file doesn't exist.
+ * An explicit `path` restricts the lookup to that file only.
+ * Returns null if no credentials are found or they can't be parsed.
+ */
+export function readClaudeCredentials(path?: string): ClaudeOAuthCredentials | null {
+  const credPath = path ?? getCredentialsPath()
+
+  if (existsSync(credPath)) {
+    try {
+      return parseCredentials(readFileSync(credPath, "utf-8"))
+    } catch {
+      return null
+    }
+  }
+
+  // Explicit path: don't silently pick up credentials from somewhere else
+  if (path !== undefined) return null
+
+  return readKeychainCredentials()
 }
 
 /**
@@ -65,7 +108,8 @@ export function isExpired(creds: ClaudeOAuthCredentials): boolean {
 
 /**
  * Run the Claude CLI to trigger an OAuth token refresh.
- * The CLI writes refreshed credentials to ~/.claude/.credentials.json.
+ * The CLI writes refreshed credentials to ~/.claude/.credentials.json
+ * (or to the keychain on macOS).
  * Retries once on failure (matching opencode-claude-auth behavior).
  */
 export function refreshViaCli(): boolean {
@@ -106,7 +150,7 @@ export function refreshIfNeeded(path?: string): ClaudeOAuthCredentials | null {
     return creds
   }
 
-  // Re-read from disk after CLI refresh
+  // Re-read (file or keychain) after CLI refresh
   const fresh = readClaudeCredentials(path)
   if (fresh && !isExpired(fresh)) {
     console.warn("[anthropic-sdk-provider] Token refreshed successfully.")
@@ -120,7 +164,7 @@ export function refreshIfNeeded(path?: string): ClaudeOAuthCredentials | null {
 /**
  * Get cached credentials with automatic refresh.
  * Uses in-memory caching with a 30-second TTL to avoid
- * hitting the filesystem on every request.
+ * hitting the filesystem or keychain on every request.
  * When the cached token is near expiry, triggers a CLI refresh.
  */
 export function getCachedCredentials(path?: string): ClaudeOAuthCredentials | null {
@@ -147,7 +191,7 @@ export function getCachedCredentials(path?: string): ClaudeOAuthCredentials | nu
 
 /**
  * Clear the in-memory credential cache.
- * Forces the next getCachedCredentials() call to re-read from disk.
+ * Forces the next getCachedCredentials() call to re-read credentials.
  */
 export function clearCredentialCache(): void {
   cachedCreds = null
