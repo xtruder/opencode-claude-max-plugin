@@ -246,7 +246,7 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 
 1. Explicit `apiKey` option
 2. `ANTHROPIC_API_KEY` env var
-3. Auto-read from `~/.claude/.credentials.json` (Claude Code OAuth)
+3. Auto-read from `~/.claude/.credentials.json` (Claude Code OAuth), falling back to the macOS keychain entry `Claude Code-credentials` when the file doesn't exist (Claude Code stores credentials there on macOS). An explicit `credentialsPath` disables the fallback.
 
 OAuth tokens use `Authorization: Bearer` with the `oauth-2025-04-20` beta. The billing system block in the system prompt is also required for Sonnet/Opus access.
 

@@ -3,14 +3,16 @@
  *
  * Run with: bun test src/credentials.test.ts
  *
- * Unit tests use temp directories with fake credential files and mock execSync.
+ * Unit tests use temp directories with fake credential files and mock execSync
+ * (including the macOS `security` CLI used for keychain lookups).
  * Integration tests use the real Claude CLI and ~/.claude/.credentials.json —
  * they are skipped automatically if either is unavailable.
  */
-import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test"
 import * as child_process from "node:child_process"
 import { execSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import * as os from "node:os"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -20,6 +22,7 @@ import {
   getCredentialsPath,
   isExpired,
   readClaudeCredentials,
+  readKeychainCredentials,
   refreshIfNeeded,
   refreshViaCli,
 } from "./credentials.ts"
@@ -354,6 +357,142 @@ describe("getCachedCredentials (mocked)", () => {
   test("returns null for missing credentials", () => {
     const result = getCachedCredentials("/tmp/nonexistent-creds.json")
     expect(result).toBeNull()
+  })
+})
+
+// ─── Keychain helpers ────────────────────────────────────────────────────────
+
+const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!
+
+/** Override `process.platform` for the duration of a test. */
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, "platform", { value: platform })
+}
+
+/**
+ * Mock execSync so `security ...` commands return the current keychain payload
+ * and every other command (e.g. the `claude` CLI refresh) runs `onOtherCommand`.
+ */
+function mockKeychain(getPayload: () => string, onOtherCommand: () => void = () => {}) {
+  return spyOn(child_process, "execSync").mockImplementation(((command: string) => {
+    if (command.startsWith("security ")) return getPayload()
+    onOtherCommand()
+    return Buffer.from("")
+  }) as any)
+}
+
+// ─── readKeychainCredentials (mocked) ────────────────────────────────────────
+
+describe("readKeychainCredentials (mocked)", () => {
+  afterEach(() => {
+    mock.restore()
+    Object.defineProperty(process, "platform", originalPlatform)
+  })
+
+  test("reads credentials from the macOS keychain", () => {
+    setPlatform("darwin")
+    const creds = makeCreds({ accessToken: "keychain-token" })
+    const execSyncSpy = mockKeychain(() => JSON.stringify({ claudeAiOauth: creds }))
+
+    const result = readKeychainCredentials()
+    expect(result).not.toBeNull()
+    expect(result!.accessToken).toBe("keychain-token")
+    expect(execSyncSpy).toHaveBeenCalledTimes(1)
+    expect(String(execSyncSpy.mock.calls[0]![0])).toContain("Claude Code-credentials")
+  })
+
+  test("returns null on non-macOS platforms without calling security", () => {
+    setPlatform("linux")
+    const execSyncSpy = mockKeychain(() => JSON.stringify({ claudeAiOauth: makeCreds() }))
+
+    expect(readKeychainCredentials()).toBeNull()
+    expect(execSyncSpy).not.toHaveBeenCalled()
+  })
+
+  test("returns null when the keychain entry is missing", () => {
+    setPlatform("darwin")
+    mockKeychain(() => {
+      throw new Error("security: The specified item could not be found in the keychain.")
+    })
+
+    expect(readKeychainCredentials()).toBeNull()
+  })
+
+  test("returns null for malformed keychain payload", () => {
+    setPlatform("darwin")
+    mockKeychain(() => "not valid json{{{")
+
+    expect(readKeychainCredentials()).toBeNull()
+  })
+
+  test("returns null when keychain payload has no accessToken", () => {
+    setPlatform("darwin")
+    mockKeychain(() => JSON.stringify({ claudeAiOauth: { refreshToken: "rt" } }))
+
+    expect(readKeychainCredentials()).toBeNull()
+  })
+})
+
+// ─── readClaudeCredentials keychain fallback (mocked) ────────────────────────
+
+describe("readClaudeCredentials keychain fallback (mocked)", () => {
+  afterEach(() => {
+    mock.restore()
+    Object.defineProperty(process, "platform", originalPlatform)
+  })
+
+  test("falls back to keychain when the default credentials file is missing", () => {
+    setPlatform("darwin")
+    spyOn(os, "homedir").mockReturnValue(join(TEST_DIR, "home-without-file"))
+    const creds = makeCreds({ accessToken: "keychain-token" })
+    mockKeychain(() => JSON.stringify({ claudeAiOauth: creds }))
+
+    const result = readClaudeCredentials()
+    expect(result).not.toBeNull()
+    expect(result!.accessToken).toBe("keychain-token")
+  })
+
+  test("prefers the default credentials file over the keychain", () => {
+    setPlatform("darwin")
+    const home = join(TEST_DIR, "home-with-file")
+    writeCredsFile(join(home, ".claude"), makeCreds())
+    spyOn(os, "homedir").mockReturnValue(home)
+    const execSyncSpy = mockKeychain(() =>
+      JSON.stringify({ claudeAiOauth: makeCreds({ accessToken: "keychain-token" }) }),
+    )
+
+    const result = readClaudeCredentials()
+    expect(result).not.toBeNull()
+    expect(result!.accessToken).toBe("test-access-token")
+    expect(execSyncSpy).not.toHaveBeenCalled()
+  })
+
+  test("does not consult keychain when an explicit path is given", () => {
+    setPlatform("darwin")
+    const execSyncSpy = mockKeychain(() => JSON.stringify({ claudeAiOauth: makeCreds() }))
+
+    expect(readClaudeCredentials("/tmp/does-not-exist-credentials.json")).toBeNull()
+    expect(execSyncSpy).not.toHaveBeenCalled()
+  })
+
+  test("refreshIfNeeded picks up a token refreshed into the keychain", () => {
+    setPlatform("darwin")
+    spyOn(os, "homedir").mockReturnValue(join(TEST_DIR, "home-keychain-refresh"))
+    let payload = JSON.stringify({ claudeAiOauth: makeCreds({ expiresAt: Date.now() + 30_000 }) })
+    const fresh = makeCreds({ accessToken: "keychain-refreshed-token" })
+    const execSyncSpy = mockKeychain(
+      () => payload,
+      () => {
+        payload = JSON.stringify({ claudeAiOauth: fresh })
+      },
+    )
+
+    const result = refreshIfNeeded()
+    expect(result).not.toBeNull()
+    expect(result!.accessToken).toBe("keychain-refreshed-token")
+    expect(execSyncSpy.mock.calls.some(([command]) => String(command).startsWith("claude "))).toBe(
+      true,
+    )
   })
 })
 
