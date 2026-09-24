@@ -7,11 +7,11 @@ An [OpenCode](https://opencode.ai/) plugin that enables Claude Pro/Max subscript
 ## Why?
 
 - **Use your Claude subscription** — Automatically reads OAuth credentials from Claude Code, no separate API key needed
-- **Matches Claude Code 2.1.220** — Same request format and behavior as the official CLI
+- **Matches Claude Code 2.1.280** — Same request format and behavior as the official CLI
 - **Prompt caching** — Multi-turn conversations cache properly, keeping costs and latency low
-- **Supported Claude models** — Opus 5, Sonnet 5, Fable 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
+- **Supported Claude models** — Opus 5.5, Fable 5.1, Opus 5, Sonnet 5, Fable 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5
 - **Extended / adaptive thinking** — Full reasoning support across models, including Claude 5 adaptive thinking
-- **Safety-refusal fallback** — Opus 5 and Fable 5 classifier refusals can fall back in the same request, with TUI notification
+- **Safety-refusal fallback** — Current Opus and Fable classifier refusals can fall back in the same request, with TUI notification
 - **Usage tracking** — Sidebar widget with live progress bars + `/usage` command
 - **Self-registering** — Models are registered automatically, no manual provider config needed
 
@@ -26,7 +26,7 @@ Add the plugin to your `opencode.json` (project-level or `~/.config/opencode/ope
 }
 ```
 
-That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Sonnet 5, Opus 4.6, Opus 4.7, Opus 4.8, Opus 5, Fable 5) at startup via the OpenCode config hook. No separate `provider` block is needed.
+That's it. The plugin self-registers the `anthropic-sdk` provider and its models (Haiku 4.5, Sonnet 4.6, Sonnet 5, Opus 4.6, Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Fable 5, Fable 5.1) at startup via the OpenCode config hook. No separate `provider` block is needed.
 
 Then open OpenCode and models will automatically be available under `anthropic-sdk` provider.
 
@@ -110,7 +110,7 @@ If you want to override model settings (e.g. thinking budgets, variants), you ca
 
 Config-level settings are merged with plugin defaults — you only need to specify what you want to override.
 
-### Claude Fable 5 and safety-refusal fallback
+### Claude Fable and safety-refusal fallback
 
 Claude Fable 5 (`claude-fable-5`) ships with stricter safety classifiers that can refuse a request at the API level (`stop_reason: "refusal"`) — even for benign follow-ups if the conversation contains a flagged topic. To keep sessions usable, the plugin enables Anthropic's server-side fallback by default: when Fable 5 refuses, **Opus 4.8 answers the same request in the same round trip**. Tool loops keep running, thinking chains stay verified, and prompt caching is unaffected.
 
@@ -142,6 +142,8 @@ Set it to another model ID to change the fallback target, or `false` to disable 
 
 Claude Opus 5 also has safety classifiers. Its `refusalFallback` defaults to `"default"`, which lets Anthropic select the recommended fallback for each refusal category. Override or disable it through the same model option on `claude-opus-5`.
 
+Claude Opus 5.5 and Claude Fable 5.1 also default to Anthropic's category-aware fallback. Override or disable it through the same model option on `claude-opus-5-5` or `claude-fable-5-1`.
+
 ## Authentication
 
 Credentials are resolved in order:
@@ -158,7 +160,7 @@ For Claude Code credentials, log in via `claude` CLI first (`claude auth login`)
 - MCP tool name remapping (`server_tool` → `mcp__server__tool`)
 - Extended thinking (Sonnet/Opus 4.6) and adaptive thinking (Opus 4.7+, Sonnet 5) with effort levels and multi-turn signature passthrough
 - Prompt caching that holds across long, tool-heavy conversations
-- Server-side safety-refusal fallback for Opus 5 and Fable 5 (configurable, on by default)
+- Server-side safety-refusal fallback for current Opus and Fable models (configurable, on by default)
 - Subscription rate limit detection — fails fast with a clear message instead of hanging
 - Long-context auto-detection for large prompts
 - TUI sidebar with live usage bars + `/usage` slash command

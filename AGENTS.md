@@ -74,6 +74,7 @@ This creates `.opencode/opencode.json` (server plugin + provider) and `.opencode
 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
 opencode run -m "anthropic-sdk/claude-sonnet-4-6" "What is 2+2?"
 opencode run -m "anthropic-sdk/claude-sonnet-5" "What is 2+2?"
+opencode run -m "anthropic-sdk/claude-opus-5-5" "What model are you?"
 opencode run -m "anthropic-sdk/claude-opus-4-6" "What model are you?"
 ```
 

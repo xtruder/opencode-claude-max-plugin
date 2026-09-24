@@ -44,13 +44,13 @@ export function selectClaudePromptForModel(modelId: string): string {
  * Claude Code CLI version to impersonate.
  * Used in user-agent, billing header, and x-stainless-package-version.
  */
-const CLAUDE_CODE_VERSION = "2.1.220"
+const CLAUDE_CODE_VERSION = "2.1.280"
 
 /**
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
  *
- * Captured from Claude Code 2.1.220 (2026-07-26). Model-conditional flags
+ * Captured from Claude Code 2.1.220 and verified against 2.1.280. Model-conditional flags
  * are appended in wrappedFetch so their order matches the CLI.
  *   - thinking-token-count-2026-05-13: estimated_tokens in thinking_delta
  *     stream events (progress hint when display="omitted")
@@ -81,11 +81,11 @@ const PROVIDER_ID = "anthropic-sdk"
 const API_KEY_COSTS = {
   haiku: { input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25 },
   sonnet: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
+  sonnet5: { input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5 },
   opus: { input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25 },
-  // Fable 5 (Mythos-class): $10/$50 per MTok — exactly double Opus.
-  // Prompt caching gets a 90% input discount → cache_read = input * 0.1.
-  // cache_write 5m is input * 1.25 (matches Anthropic's standard ratio).
+  opus55: { input: 4.0, output: 20.0, cache_read: 0.2, cache_write: 5.0 },
   fable: { input: 10.0, output: 50.0, cache_read: 1.0, cache_write: 12.5 },
+  fable51: { input: 10.0, output: 50.0, cache_read: 0.25, cache_write: 12.5 },
 } as const
 
 const ZERO_COST = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
@@ -169,7 +169,7 @@ function buildPluginModels(isOAuth: boolean) {
       attachment: true,
       temperature: false,
       limit: { context: 1_000_000, output: 128_000 },
-      cost: cost("sonnet"),
+      cost: cost("sonnet5"),
       modalities: {
         input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
         output: ["text"] as Array<"text">,
@@ -283,6 +283,21 @@ function buildPluginModels(isOAuth: boolean) {
       options: { effort: "high", refusalFallback: "default" },
       ...opus47Variants,
     },
+    "claude-opus-5-5": {
+      name: "Claude Opus 5.5",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: false,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("opus55"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium", refusalFallback: "default" },
+      ...opus47Variants,
+    },
     /**
      * Fable 5 — Anthropic's most capable widely released model (released 2026-06-09).
      *
@@ -312,6 +327,21 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "medium", refusalFallback: "claude-opus-4-8" },
+      ...opus47Variants,
+    },
+    "claude-fable-5-1": {
+      name: "Claude Fable 5.1",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: false,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("fable51"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "high", refusalFallback: "default" },
       ...opus47Variants,
     },
   }

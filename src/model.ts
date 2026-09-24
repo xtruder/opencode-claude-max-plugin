@@ -135,7 +135,7 @@ export const FALLBACK_BETAS_HEADER = "x-anthropic-sdk-fallback-betas"
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.220.52c; cc_entrypoint=sdk-cli;",
+  text: "x-anthropic-billing-header: cc_version=2.1.280.790; cc_entrypoint=sdk-cli;",
 }
 
 /**
@@ -187,6 +187,18 @@ function usesAdaptiveThinking(apiModelId: string): boolean {
     apiModelId.includes("claude-opus-5") ||
     apiModelId.includes("claude-fable-5")
   )
+}
+
+function defaultEffort(apiModelId: string): string {
+  if (apiModelId.includes("claude-opus-5-5")) return "medium"
+  if (
+    apiModelId.includes("claude-opus-5") ||
+    apiModelId.includes("claude-sonnet-5") ||
+    apiModelId.includes("claude-fable-5-1")
+  ) {
+    return "high"
+  }
+  return "medium"
 }
 
 /**
@@ -320,7 +332,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         // isn't in OpenCode's sdkKey map; also check "anthropic" for direct usage.
         const providerOpts = (options.providerOptions?.["anthropic-sdk"] ??
           options.providerOptions?.anthropic) as Record<string, any> | undefined
-        const effort = providerOpts?.effort ?? "medium"
+        const effort = providerOpts?.effort ?? defaultEffort(this.apiModelId)
         params.output_config = { effort }
 
         // Adaptive-thinking models (Opus 4.7/4.8/5, Sonnet 5, Fable 5) default

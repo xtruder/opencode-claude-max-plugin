@@ -15,6 +15,7 @@ import {
   CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
   CLAUDE_CODE_SONNET5_SYSTEM_PROMPT,
   CLAUDE_CODE_SYSTEM_PROMPT,
+  anthropicSDKPlugin,
   createAnthropicSDK,
   selectClaudePromptForModel,
 } from "./index.ts"
@@ -109,6 +110,8 @@ describe("createAnthropicSDK", () => {
     delete process.env.ANTHROPIC_API_KEY
     clearCredentialCache()
     let requestAuthorization: string | null = null
+    let requestUserAgent: string | null = null
+    let requestBody = ""
     const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
       writeFileSync(
         credPath,
@@ -129,7 +132,10 @@ describe("createAnthropicSDK", () => {
       const provider = createAnthropicSDK({
         credentialsPath: credPath,
         fetch: (async (_url, init) => {
-          requestAuthorization = new Headers(init?.headers).get("authorization")
+          const headers = new Headers(init?.headers)
+          requestAuthorization = headers.get("authorization")
+          requestUserAgent = headers.get("user-agent")
+          requestBody = String(init?.body)
           return new Response('{"error":{"type":"authentication_error","message":"test"}}', {
             status: 401,
             headers: { "content-type": "application/json" },
@@ -148,6 +154,8 @@ describe("createAnthropicSDK", () => {
 
       expect(execSyncSpy).toHaveBeenCalledTimes(1)
       expect(requestAuthorization).toBe(`Bearer ${refreshedToken}`)
+      expect(requestUserAgent).toBe("claude-cli/2.1.280 (external, sdk-cli)")
+      expect(requestBody).toContain("cc_version=2.1.280.790")
     } finally {
       execSyncSpy.mockRestore()
       if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey
@@ -164,8 +172,45 @@ describe("selectClaudePromptForModel", () => {
       "Assist with authorized security testing",
     )
     expect(selectClaudePromptForModel("claude-opus-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-opus-5-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-fable-5")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-fable-5-1")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-sonnet-4-6")).toBe(CLAUDE_CODE_SYSTEM_PROMPT)
+  })
+})
+
+describe("anthropicSDKPlugin model catalog", () => {
+  test("registers the latest public models with current API pricing", async () => {
+    const savedKey = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test"
+    try {
+      const hooks = await anthropicSDKPlugin({} as any)
+      const config = {} as any
+      await hooks.config?.(config)
+      const models = config.provider["anthropic-sdk"].models
+
+      expect(models["claude-opus-5-5"]).toMatchObject({
+        name: "Claude Opus 5.5",
+        limit: { context: 1_000_000, output: 128_000 },
+        cost: { input: 4, output: 20, cache_read: 0.2, cache_write: 5 },
+        options: { effort: "medium", refusalFallback: "default" },
+      })
+      expect(models["claude-fable-5-1"]).toMatchObject({
+        name: "Claude Fable 5.1",
+        limit: { context: 1_000_000, output: 128_000 },
+        cost: { input: 10, output: 50, cache_read: 0.25, cache_write: 12.5 },
+        options: { effort: "high", refusalFallback: "default" },
+      })
+      expect(models["claude-sonnet-5"].cost).toEqual({
+        input: 2,
+        output: 10,
+        cache_read: 0.2,
+        cache_write: 2.5,
+      })
+    } finally {
+      if (savedKey == null) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = savedKey
+    }
   })
 })
