@@ -51,9 +51,13 @@ jobs:
         run: npm pack --dry-run
 
       - name: Publish to npm with OIDC
-        run: npm publish --access public
+        env:
+          NPM_DIST_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+        run: npm publish --access public --tag "$NPM_DIST_TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
