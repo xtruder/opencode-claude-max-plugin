@@ -4,6 +4,12 @@ import { pathToFileURL } from "node:url"
 import { loadConfigFromFile } from "vite"
 import { expect, test } from "vitest"
 
+test("package root exports an OpenCode server plugin", async () => {
+  const { default: plugin } = await import("@xtruder/opencode-claude-max-plugin")
+  expect(plugin.id).toBe("anthropic-sdk")
+  expect(typeof plugin.setup).toBe("function")
+})
+
 test("built server registers the executable provider file, not an inline asset", async () => {
   const { default: plugin } = await import(pathToFileURL(resolve("build/server.js")).href)
   let providerPackage = ""

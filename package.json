@@ -1,6 +1,6 @@
 {
   "name": "@xtruder/opencode-claude-max-plugin",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.2",
   "description": "OpenCode plugin for Claude Max/Pro subscription via @anthropic-ai/sdk - uses Claude Code OAuth credentials",
   "keywords": [
     "ai-sdk",
@@ -18,10 +18,14 @@
     "build"
   ],
   "type": "module",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
+  "main": "build/server.js",
+  "types": "build/server.d.ts",
   "exports": {
     ".": {
+      "import": "./build/server.js",
+      "types": "./build/server.d.ts"
+    },
+    "./provider": {
       "import": "./build/index.js",
       "types": "./build/index.d.ts"
     },
