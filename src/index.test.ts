@@ -1,11 +1,12 @@
+import * as child_process from "node:child_process"
 /**
  * Tests for index.ts — createAnthropicSDK factory, auth resolution.
  *
- * Run with: bun test src/index.test.ts
+ * Run with: npx vitest run src/index.test.ts
  */
-import { describe, expect, spyOn, test } from "bun:test"
-import * as child_process from "node:child_process"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { describe, expect, vi, test } from "vitest"
+vi.mock("node:child_process", { spy: true })
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { clearCredentialCache } from "./credentials.ts"
@@ -15,7 +16,7 @@ import {
   CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
   CLAUDE_CODE_SONNET5_SYSTEM_PROMPT,
   CLAUDE_CODE_SYSTEM_PROMPT,
-  anthropicSDKPlugin,
+  buildPluginModels,
   createAnthropicSDK,
   selectClaudePromptForModel,
 } from "./index.ts"
@@ -56,7 +57,17 @@ describe("createAnthropicSDK", () => {
     delete process.env.ANTHROPIC_API_KEY
     clearCredentialCache()
     try {
-      const provider = createAnthropicSDK({ credentialsPath: credPath })
+      let authorization: string | null = null
+      const provider = createAnthropicSDK({
+        credentialsPath: credPath,
+        fetch: (async (_url, init) => {
+          authorization = new Headers(init?.headers).get("authorization")
+          return new Response(
+            '{"error":{"type":"authentication_error","message":"invalid test token"}}',
+            { status: 401, headers: { "content-type": "application/json" } },
+          )
+        }) as typeof fetch,
+      })
       const m = provider.languageModel("claude-haiku-4-5-20251001")
       expect(m.specificationVersion).toBe("v3")
       expect(m.modelId).toBe("claude-haiku-4-5-20251001")
@@ -78,6 +89,7 @@ describe("createAnthropicSDK", () => {
             msg.includes("invalid"),
         ).toBe(true)
       }
+      expect(authorization).toBe(`Bearer ${oauthToken}`)
     } finally {
       // Restore env var BEFORE clearing cache
       if (savedKey) {
@@ -112,7 +124,7 @@ describe("createAnthropicSDK", () => {
     let requestAuthorization: string | null = null
     let requestUserAgent: string | null = null
     let requestBody = ""
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       writeFileSync(
         credPath,
         JSON.stringify({
@@ -166,6 +178,11 @@ describe("createAnthropicSDK", () => {
 })
 
 describe("selectClaudePromptForModel", () => {
+  test("imports prompt contents rather than an asset URL under Node tests", () => {
+    expect(CLAUDE_CODE_SYSTEM_PROMPT).toBe(
+      readFileSync(new URL("./claudecode-system.txt", import.meta.url), "utf8"),
+    )
+  })
   test("uses model-specific Claude 5 prompts", () => {
     expect(selectClaudePromptForModel("claude-sonnet-5")).toBe(CLAUDE_CODE_SONNET5_SYSTEM_PROMPT)
     expect(CLAUDE_CODE_SONNET5_SYSTEM_PROMPT).not.toContain(
@@ -176,19 +193,16 @@ describe("selectClaudePromptForModel", () => {
     expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-fable-5")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-fable-5-1")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
-    expect(selectClaudePromptForModel("claude-sonnet-4-6")).toBe(CLAUDE_CODE_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-haiku-4-5")).toBe(CLAUDE_CODE_SYSTEM_PROMPT)
   })
 })
 
-describe("anthropicSDKPlugin model catalog", () => {
+describe("buildPluginModels", () => {
   test("registers the latest public models with current API pricing", async () => {
     const savedKey = process.env.ANTHROPIC_API_KEY
     process.env.ANTHROPIC_API_KEY = "sk-ant-test"
     try {
-      const hooks = await anthropicSDKPlugin({} as any)
-      const config = {} as any
-      await hooks.config?.(config)
-      const models = config.provider["anthropic-sdk"].models
+      const models = buildPluginModels(false)
 
       expect(models["claude-opus-5-5"]).toMatchObject({
         name: "Claude Opus 5.5",

@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 /**
  * Tests for cch.ts — CCH (Client Challenge Hash) request signing.
  *
  * Verifies the xxHash64-based body integrity hash used in the
  * x-anthropic-billing-header system block for Claude Code compatibility.
  *
- * Run with: bun test src/cch.test.ts
+ * Run with: npx vitest run src/cch.test.ts
  */
 import { computeCch, hasCchPlaceholder, replaceCchPlaceholder } from "./cch.ts"
 
@@ -20,7 +20,7 @@ describe("computeCch", () => {
 
   test("produces deterministic output for the same input", async () => {
     const body =
-      '{"model":"claude-sonnet-4-6","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"}],"messages":[{"role":"user","content":"hello"}]}'
+      '{"model":"claude-sonnet-5","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"}],"messages":[{"role":"user","content":"hello"}]}'
     const cch1 = await computeCch(body)
     const cch2 = await computeCch(body)
     expect(cch1).toBe(cch2)
@@ -272,7 +272,7 @@ describe("replaceCchPlaceholder", () => {
 describe("CCH end-to-end", () => {
   test("compute and replace produces a valid signed body", async () => {
     const body =
-      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"}],"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"Say hello"}]}'
+      '{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.81.df2; cc_entrypoint=cli; cch=00000;"}],"model":"claude-sonnet-5","messages":[{"role":"user","content":"Say hello"}]}'
 
     expect(hasCchPlaceholder(body)).toBe(true)
 

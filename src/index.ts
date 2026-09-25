@@ -1,11 +1,10 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider"
-import type { Plugin } from "@opencode-ai/plugin"
 import Anthropic from "@anthropic-ai/sdk"
-import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt" with { type: "text" }
-import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt" with { type: "text" }
-import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt" with { type: "text" }
-import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt" with { type: "text" }
-import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt" with { type: "text" }
+import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt"
+import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt"
+import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt"
+import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt"
+import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt"
 import { getCachedCredentials, readClaudeCredentials } from "./credentials.ts"
 import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
 import { cachedUsage, persistCachedUsage } from "./usage.ts"
@@ -69,8 +68,7 @@ const OAUTH_BETAS = [
  */
 const API_KEY_BETAS = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
 
-const PACKAGE_NAME = "@xtruder/opencode-claude-max-plugin"
-const PROVIDER_ID = "anthropic-sdk"
+export const PROVIDER_ID = "anthropic-sdk"
 
 /**
  * Per-token pricing in USD per million tokens.
@@ -80,7 +78,6 @@ const PROVIDER_ID = "anthropic-sdk"
  */
 const API_KEY_COSTS = {
   haiku: { input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25 },
-  sonnet: { input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75 },
   sonnet5: { input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5 },
   opus: { input: 5.0, output: 25.0, cache_read: 0.5, cache_write: 6.25 },
   opus55: { input: 4.0, output: 20.0, cache_read: 0.2, cache_write: 5.0 },
@@ -90,36 +87,11 @@ const API_KEY_COSTS = {
 
 const ZERO_COST = { input: 0, output: 0, cache_read: 0, cache_write: 0 }
 
-/**
- * Base model definitions. Context and output limits match Anthropic's
- * official specs (context-windows doc + models overview).
- *
- * - Haiku 4.5:       200K context, 64K output
- * - Sonnet 4.6:      200K context, 64K output
- * - Sonnet 5:        1M context,  128K output
- * - Opus 4.6:        200K context, 128K output  (conservative, matches Claude Code default)
- * - Opus 4.6 (1M):  1M context,  128K output  (empirically confirmed: hard 1M token limit)
- *
- * The 200K default context matches Claude Code's MODEL_CONTEXT_WINDOW_DEFAULT.
- * Opus 4.6 natively accepts up to 1M tokens on Max subscription without any
- * special beta header — confirmed empirically (fails at exactly 1,000,000 tokens).
- *
- * OAuth/subscription users pay $0 per-token (flat monthly fee).
- * API key users pay real Anthropic rates.
- */
-function buildPluginModels(isOAuth: boolean) {
+/** Register supported models with subscription or API-key pricing. */
+export function buildPluginModels(isOAuth: boolean) {
   const cost = (tier: keyof typeof API_KEY_COSTS) => (isOAuth ? ZERO_COST : API_KEY_COSTS[tier])
 
-  const opusVariants = {
-    variants: {
-      low: { effort: "low" },
-      medium: { effort: "medium" },
-      high: { effort: "high" },
-      max: { effort: "max" },
-    },
-  }
-
-  const opus47Variants = {
+  const effortVariants = {
     variants: {
       low: { effort: "low" },
       medium: { effort: "medium" },
@@ -143,25 +115,6 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
     },
-    "claude-sonnet-4-6": {
-      name: "Claude Sonnet 4.6",
-      reasoning: true,
-      tool_call: true,
-      attachment: true,
-      temperature: true,
-      limit: { context: 200_000, output: 64_000 },
-      cost: cost("sonnet"),
-      modalities: {
-        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-        output: ["text"] as Array<"text">,
-      },
-      options: { effort: "medium" },
-      variants: {
-        low: { effort: "low" },
-        medium: { effort: "medium" },
-        high: { effort: "high" },
-      },
-    },
     "claude-sonnet-5": {
       name: "Claude Sonnet 5",
       reasoning: true,
@@ -175,76 +128,8 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "high" },
-      ...opus47Variants,
+      ...effortVariants,
     },
-    "claude-opus-4-6": {
-      name: "Claude Opus 4.6",
-      reasoning: true,
-      tool_call: true,
-      attachment: true,
-      temperature: true,
-      limit: { context: 200_000, output: 128_000 },
-      cost: cost("opus"),
-      modalities: {
-        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-        output: ["text"] as Array<"text">,
-      },
-      options: { effort: "medium" },
-      ...opusVariants,
-    },
-    /**
-     * Opus 4.6 with full 1M context window.
-     *
-     * Empirically confirmed: Opus 4.6 accepts up to exactly 1,000,000 input tokens
-     * on Max subscription with no special beta header. The model ID sent to the API
-     * is identical ("claude-opus-4-6") — only the OpenCode context limit differs,
-     * which controls when compaction triggers.
-     */
-    "claude-opus-4-6-1m": {
-      name: "Claude Opus 4.6 (1M)",
-      reasoning: true,
-      tool_call: true,
-      attachment: true,
-      temperature: true,
-      limit: { context: 1_000_000, output: 128_000 },
-      cost: cost("opus"),
-      modalities: {
-        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-        output: ["text"] as Array<"text">,
-      },
-      options: { effort: "medium" },
-      ...opusVariants,
-    },
-    /**
-     * Opus 4.7 — most capable generally available model.
-     *
-     * Step-change improvement in agentic coding over Opus 4.6.
-     * Natively supports 1M context window (new tokenizer ~555k words).
-     * Supports adaptive thinking (effort) but NOT extended thinking.
-     */
-    "claude-opus-4-7": {
-      name: "Claude Opus 4.7",
-      reasoning: true,
-      tool_call: true,
-      attachment: true,
-      temperature: true,
-      limit: { context: 1_000_000, output: 128_000 },
-      cost: cost("opus"),
-      modalities: {
-        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
-        output: ["text"] as Array<"text">,
-      },
-      options: { effort: "medium" },
-      ...opus47Variants,
-    },
-    /**
-     * Opus 4.8 — Anthropic's most capable generally available model (released 2026-05-28).
-     *
-     * Builds on Opus 4.7 with improvements across coding, agentic, and reasoning benchmarks.
-     * Natively supports 1M context window with no beta header. Same pricing as 4.7 ($5/$25 per MTok).
-     * Supports adaptive thinking (effort levels low/medium/high/xhigh/max) but NOT extended thinking.
-     * Lower 1,024-token minimum cacheable prompt length (vs higher on 4.7).
-     */
     "claude-opus-4-8": {
       name: "Claude Opus 4.8",
       reasoning: true,
@@ -258,7 +143,7 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "medium" },
-      ...opus47Variants,
+      ...effortVariants,
     },
     /**
      * Opus 5 — Anthropic's latest Opus model (released 2026-07-24).
@@ -281,7 +166,7 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "high", refusalFallback: "default" },
-      ...opus47Variants,
+      ...effortVariants,
     },
     "claude-opus-5-5": {
       name: "Claude Opus 5.5",
@@ -296,7 +181,7 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "medium", refusalFallback: "default" },
-      ...opus47Variants,
+      ...effortVariants,
     },
     /**
      * Fable 5 — Anthropic's most capable widely released model (released 2026-06-09).
@@ -306,7 +191,7 @@ function buildPluginModels(isOAuth: boolean) {
      *
      * Adaptive thinking is always-on (the only thinking mode); raw chain-of-thought
      * is never returned (thinking blocks are summarized or omitted). Uses the same
-     * effort levels as Opus 4.7/4.8 (low/medium/high/xhigh/max).
+     * effort levels as Opus 4.8 (low/medium/high/xhigh/max).
      *
      * Safety classifiers can decline requests in cyber/bio/frontier_llm/reasoning_extraction
      * domains, returning stop_reason: "refusal" (HTTP 200). Per Anthropic's recommendation
@@ -327,7 +212,7 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "medium", refusalFallback: "claude-opus-4-8" },
-      ...opus47Variants,
+      ...effortVariants,
     },
     "claude-fable-5-1": {
       name: "Claude Fable 5.1",
@@ -342,7 +227,7 @@ function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "high", refusalFallback: "default" },
-      ...opus47Variants,
+      ...effortVariants,
     },
   }
 }
@@ -392,7 +277,7 @@ export interface AnthropicSDKProvider {
   languageModel(modelId: string): LanguageModelV3
 }
 
-function resolveAuth(options: AnthropicSDKProviderOptions): {
+export function resolveAuth(options: AnthropicSDKProviderOptions): {
   apiKey?: string | null
   authToken?: string | null
   isOAuth: boolean
@@ -588,97 +473,6 @@ export function createAnthropicSDK(
   return {
     languageModel(modelId: string): LanguageModelV3 {
       return new AnthropicSDKModel(modelId, client, name as string, auth.isOAuth)
-    },
-  }
-}
-
-/**
- * OpenCode plugin that self-registers the anthropic-sdk provider and its
- * supported models into the running config on startup.
- *
- * Add this package to the `plugin` array in your opencode.json:
- *
- *   { "plugin": ["@xtruder/opencode-claude-max-plugin"] }
- *
- * The plugin uses the `config` hook which is called after config is loaded
- * but before providers are initialized. We mutate the Config object in-place
- * to inject the provider definition and model list.
- *
- * OpenCode's plugin loader iterates all module exports and calls each one
- * as a Plugin function. `createAnthropicSDK` is also called — it returns
- * { languageModel } which is harmlessly pushed to the hooks list with all
- * hook slots undefined (no-ops).
- */
-export const anthropicSDKPlugin: Plugin = async () => {
-  // Determine auth mode once at plugin init to select the right pricing.
-  // OAuth/subscription users pay $0 per-token (flat monthly fee).
-  const isOAuth = resolveAuth({}).isOAuth
-
-  return {
-    config: async (cfg) => {
-      // Inject the anthropic-sdk provider with its model list.
-      // The config object is passed by reference — mutating it in-place
-      // is the only way to register models during plugin init (before
-      // the server is ready for HTTP requests).
-      if (!cfg.provider) {
-        cfg.provider = {}
-      }
-      // Plugin provides defaults; config-level settings take priority.
-      // This allows .opencode/opencode.json to override npm (e.g. file://)
-      // or individual model settings while the plugin provides the base.
-      //
-      // Models are merged per-entry (not replaced wholesale): a user who
-      // tweaks one option on one model — e.g. disabling the Fable 5 refusal
-      // fallback with `"claude-fable-5": { "options": { "refusalFallback":
-      // false } }` — must not lose the other models or the rest of that
-      // model's definition.
-      const userProvider = (cfg.provider[PROVIDER_ID] ?? {}) as Record<string, any>
-      const defaultModels: Record<string, any> = buildPluginModels(isOAuth)
-      const models: Record<string, any> = { ...defaultModels }
-      for (const [modelID, userModel] of Object.entries(userProvider.models ?? {})) {
-        const base = defaultModels[modelID]
-        models[modelID] = base
-          ? {
-              ...base,
-              ...(userModel as Record<string, any>),
-              options: { ...base.options, ...(userModel as any)?.options },
-              variants: { ...base.variants, ...(userModel as any)?.variants },
-            }
-          : userModel
-      }
-      cfg.provider[PROVIDER_ID] = {
-        npm: PACKAGE_NAME,
-        ...userProvider,
-        models,
-      }
-    },
-    "experimental.chat.system.transform": async (input, output) => {
-      const modelId = input.model?.id ?? ""
-      const prompt = selectClaudePromptForModel(modelId)
-
-      if (output.system.length === 0) {
-        output.system.push(prompt)
-        return
-      }
-
-      // OpenCode joins [provider_prompt, env_info, skills, instructions] into
-      // a single string in system[0]. Replace the provider prompt portion with
-      // Claude Code's prompt while preserving env, skills, and instructions.
-      //
-      // Anthropic's third-party detection matches specific OpenCode-native
-      // strings. We rewrite known triggers to Claude Code equivalents.
-      const ENV_MARKER = "You are powered by the model named"
-      const original = output.system[0]
-      const envIdx = original.indexOf(ENV_MARKER)
-      if (envIdx > 0) {
-        let appended = original.slice(envIdx)
-        // Rewrite OpenCode env phrasing to Claude Code equivalents
-        appended = appended.replace("Is directory a git repo: yes", "Is a git repository: true")
-        appended = appended.replace("Is directory a git repo: no", "Is a git repository: false")
-        output.system[0] = prompt + "\n" + appended
-      } else {
-        output.system[0] = prompt
-      }
     },
   }
 }

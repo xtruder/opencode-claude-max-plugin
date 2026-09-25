@@ -5,35 +5,53 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: npm-publish # gates NPM_TOKEN to tags on main (configured in repo settings)
+    environment: npm-publish
     permissions:
-      contents: write # for creating GitHub releases
+      id-token: write # npm trusted publishing (OIDC)
+      contents: write # GitHub release creation
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version: latest
+          node-version: "26"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Verify release tag
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+            if (process.env.GITHUB_REF_NAME !== `v${version}`) {
+              throw new Error("Release tag must match package.json version");
+            }
+          '
 
       - name: Install dependencies
-        run: bun install
+        run: npm ci
 
-      - name: Build
-        run: bun run build
+      - name: Check code
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run format:check
 
-      - name: Run tests
-        run: bun run test
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Build and test
+        run: npm test
 
-      - name: Publish to npm
+      - name: Inspect package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm with OIDC
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

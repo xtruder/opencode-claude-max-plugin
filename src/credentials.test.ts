@@ -1,14 +1,15 @@
+import * as child_process from "node:child_process"
 /**
  * Tests for credentials.ts — unit tests (mocked) + integration tests (real CLI).
  *
- * Run with: bun test src/credentials.test.ts
+ * Run with: npx vitest run src/credentials.test.ts
  *
  * Unit tests use temp directories with fake credential files and mock execSync.
  * Integration tests use the real Claude CLI and ~/.claude/.credentials.json —
- * they are skipped automatically if either is unavailable.
+ * they require CLAUDE_LIVE_TESTS=1 and are skipped if either is unavailable.
  */
-import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test"
-import * as child_process from "node:child_process"
+import { afterAll, beforeEach, describe, expect, vi, test } from "vitest"
+vi.mock("node:child_process", { spy: true })
 import { execSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -52,6 +53,7 @@ let hasClaudeCli = false
 let hasCredentials = false
 
 try {
+  if (process.env.CLAUDE_LIVE_TESTS !== "1") throw new Error("Live tests are opt-in")
   execSync("claude --version", { timeout: 5_000, stdio: "ignore" })
   hasClaudeCli = true
 } catch {
@@ -62,7 +64,7 @@ const credPath = getCredentialsPath()
 hasCredentials = existsSync(credPath)
 
 function skipUnless(condition: boolean, reason: string) {
-  if (!condition) {
+  if (process.env.CLAUDE_LIVE_TESTS !== "1" || !condition) {
     test.skip(`SKIPPED: ${reason}`, () => {})
     return true
   }
@@ -182,8 +184,9 @@ describe("getCredentialsPath", () => {
 
 describe("refreshViaCli (mocked)", () => {
   test("returns true when CLI succeeds", () => {
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() =>
-      Buffer.from("")) as any)
+    const execSyncSpy = vi
+      .spyOn(child_process, "execSync")
+      .mockImplementation((() => Buffer.from("")) as any)
 
     const result = refreshViaCli()
     expect(result).toBe(true)
@@ -194,7 +197,7 @@ describe("refreshViaCli (mocked)", () => {
 
   test("retries once and returns true if second attempt succeeds", () => {
     let callCount = 0
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       callCount++
       if (callCount === 1) throw new Error("first attempt fails")
       return Buffer.from("")
@@ -208,7 +211,7 @@ describe("refreshViaCli (mocked)", () => {
   })
 
   test("returns false after 2 failed attempts", () => {
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       throw new Error("CLI not found")
     }) as any)
 
@@ -228,7 +231,7 @@ describe("refreshIfNeeded (mocked)", () => {
     const creds = makeCreds({ expiresAt: Date.now() + 3600_000 })
     const filePath = writeCredsFile(dir, creds)
 
-    const execSyncSpy = spyOn(child_process, "execSync")
+    const execSyncSpy = vi.spyOn(child_process, "execSync")
 
     const result = refreshIfNeeded(filePath)
     expect(result).not.toBeNull()
@@ -248,7 +251,7 @@ describe("refreshIfNeeded (mocked)", () => {
       accessToken: "refreshed-token",
       expiresAt: Date.now() + 3600_000,
     })
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       writeFileSync(filePath, JSON.stringify({ claudeAiOauth: freshCreds }))
       return Buffer.from("")
     }) as any)
@@ -266,7 +269,7 @@ describe("refreshIfNeeded (mocked)", () => {
     const creds = makeCreds({ expiresAt: Date.now() + 30_000 })
     const filePath = writeCredsFile(dir, creds)
 
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       throw new Error("CLI failed")
     }) as any)
 
@@ -291,7 +294,7 @@ describe("getCachedCredentials (mocked)", () => {
     const creds = makeCreds()
     const filePath = writeCredsFile(dir, creds)
 
-    const execSyncSpy = spyOn(child_process, "execSync")
+    const execSyncSpy = vi.spyOn(child_process, "execSync")
 
     const result1 = getCachedCredentials(filePath)
     expect(result1).not.toBeNull()
@@ -314,7 +317,7 @@ describe("getCachedCredentials (mocked)", () => {
     const creds = makeCreds()
     const filePath = writeCredsFile(dir, creds)
 
-    const execSyncSpy = spyOn(child_process, "execSync")
+    const execSyncSpy = vi.spyOn(child_process, "execSync")
 
     getCachedCredentials(filePath)
 
@@ -338,7 +341,7 @@ describe("getCachedCredentials (mocked)", () => {
       accessToken: "cache-refreshed-token",
       expiresAt: Date.now() + 3600_000,
     })
-    const execSyncSpy = spyOn(child_process, "execSync").mockImplementation((() => {
+    const execSyncSpy = vi.spyOn(child_process, "execSync").mockImplementation((() => {
       writeFileSync(filePath, JSON.stringify({ claudeAiOauth: freshCreds }))
       return Buffer.from("")
     }) as any)

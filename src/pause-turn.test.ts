@@ -2,9 +2,9 @@
  * Tests for pause_turn auto-continuation — event-level continuation
  * (pause-turn.ts) and the exhausted-pause error surfaced by stream.ts.
  *
- * Run with: bun test src/pause-turn.test.ts
+ * Run with: npx vitest run src/pause-turn.test.ts
  */
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { continuationParams, withPauseTurnContinuation } from "./pause-turn.ts"
 import { convertStream } from "./stream.ts"
 

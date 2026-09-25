@@ -1,15 +1,15 @@
+import { readFileSync } from "node:fs"
 /**
  * Integration tests for AnthropicSDKModel — generation, streaming, tools,
  * thinking, and prompt caching.
  *
- * Run with: bun test src/model.test.ts
+ * Run with: npx vitest run src/model.test.ts
  *
  * Requires either ANTHROPIC_API_KEY env var or ~/.claude/.credentials.json.
  * Tests that need OAuth credentials (thinking, caching) are skipped when
  * using an API key.
  */
-import { describe, expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { describe, expect, test } from "vitest"
 import { readClaudeCredentials } from "./credentials.ts"
 // import { streamText, generateText, tool } from "ai"  // Requires ai@6 for V3 models
 // import { z } from "zod"
@@ -260,7 +260,7 @@ describe("AI SDK integration", () => {
 describe("thinking", () => {
   if (skipUnless(isOAuth, "thinking tests require OAuth credentials")) return
 
-  const getThinkingModel = () => provider.languageModel("claude-sonnet-4-6")
+  const getThinkingModel = () => provider.languageModel("claude-haiku-4-5")
 
   test("doStream produces reasoning events with signature", async () => {
     const thinkingModel = getThinkingModel()
@@ -269,7 +269,7 @@ describe("thinking", () => {
       maxOutputTokens: 4096,
       providerOptions: {
         anthropic: {
-          thinking: { type: "enabled", budgetTokens: 5000 },
+          thinking: { type: "enabled", budgetTokens: 1024 },
         },
       },
     } as any)
@@ -307,7 +307,7 @@ describe("thinking", () => {
       maxOutputTokens: 4096,
       providerOptions: {
         anthropic: {
-          thinking: { type: "enabled", budgetTokens: 5000 },
+          thinking: { type: "enabled", budgetTokens: 1024 },
         },
       },
     } as any)
@@ -332,7 +332,7 @@ describe("thinking", () => {
       maxOutputTokens: 4096,
       providerOptions: {
         anthropic: {
-          thinking: { type: "enabled", budgetTokens: 5000 },
+          thinking: { type: "enabled", budgetTokens: 1024 },
         },
       },
     } as any)
@@ -347,7 +347,7 @@ describe("thinking", () => {
       maxOutputTokens: 4096,
       providerOptions: {
         anthropic: {
-          thinking: { type: "enabled", budgetTokens: 5000 },
+          thinking: { type: "enabled", budgetTokens: 1024 },
         },
       },
     } as any)
@@ -358,7 +358,7 @@ describe("thinking", () => {
   }, 30_000)
 })
 
-// ─── Adaptive thinking display (Opus 4.7/4.8/5, Sonnet 5, Fable 5) ───────────
+// ─── Adaptive thinking display (Opus 4.8/5, Sonnet 5, Fable 5) ───────────
 //
 // These models default `thinking.display` to "omitted" on the wire, returning
 // EMPTY thinking blocks (signature only) unless we explicitly request
@@ -402,7 +402,7 @@ describe("adaptive thinking display", () => {
 describe("reasoning effort", () => {
   if (skipUnless(isOAuth, "effort tests require OAuth credentials")) return
 
-  const getEffortModel = () => provider.languageModel("claude-sonnet-4-6")
+  const getEffortModel = () => provider.languageModel("claude-opus-4-8")
 
   test("effort 'low' produces a response", async () => {
     const effortModel = getEffortModel()

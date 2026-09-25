@@ -10,11 +10,12 @@
     "provider"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xtruder/opencode-claude-max-plugin.git"
+  },
   "files": [
-    "build",
-    "src/tui.tsx",
-    "src/usage.ts",
-    "src/credentials.ts"
+    "build"
   ],
   "type": "module",
   "main": "build/index.js",
@@ -25,23 +26,19 @@
       "types": "./build/index.d.ts"
     },
     "./server": {
-      "import": "./build/server.js",
-      "config": {}
+      "import": "./build/server.js"
     },
     "./tui": {
-      "import": "./src/tui.tsx",
-      "config": {
-        "enabled": "true",
-        "sidebar": "true",
-        "poll_interval": "60"
-      }
+      "import": "./build/tui.js"
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/server.ts --outdir ./build --target node --format esm --packages external && bun x tsc --emitDeclarationOnly --declaration --outDir build",
-    "dev": "bun run dev:config && bun build ./src/index.ts --outdir ./build --target node --format esm --packages external --watch",
-    "dev:config": "bun scripts/dev-config.ts",
-    "test": "bun test --concurrency 1 src/*.test.ts",
+    "build": "vite build && tsc --emitDeclarationOnly --declaration --outDir build",
+    "dev": "vite build --watch",
+    "test": "npm run build && vitest run",
+    "typecheck": "tsc --noEmit",
+    "test:live": "CLAUDE_LIVE_TESTS=1 npm test",
+    "test:tui-smoke": "uv run --with pexpect --with pyte python scripts/tui-smoke.py",
     "lint": "oxlint src",
     "lint:fix": "oxlint --fix src",
     "format": "oxfmt --write .",
@@ -50,45 +47,34 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.94.0",
+    "@opentui/core": "0.5.10",
+    "@opentui/solid": "0.5.10",
+    "solid-js": "1.9.12",
     "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
     "@ai-sdk/provider-utils": "3.0.2",
-    "@opencode-ai/plugin": "1.15.11",
-    "@opentui/solid": "^0.1.96",
+    "@opencode/plugin": "2.0.16",
+    "@opencode/theme": "2.0.16",
+    "@types/node": "^26.6.2",
     "ai": "^6.0.146",
-    "bun-types": "^1.3.11",
     "oxfmt": "^0.41.0",
     "oxlint": "^1.56.0",
     "simple-git-hooks": "^2.13.1",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite": "^8.3.1",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^5.0.2"
   },
   "peerDependencies": {
-    "@ai-sdk/provider": ">=2.0.0",
-    "@opencode-ai/plugin": "*",
-    "@opentui/core": "*",
-    "@opentui/solid": "*",
-    "solid-js": "*"
-  },
-  "peerDependenciesMeta": {
-    "@opencode-ai/plugin": {
-      "optional": true
-    },
-    "@opentui/core": {
-      "optional": true
-    },
-    "@opentui/solid": {
-      "optional": true
-    },
-    "solid-js": {
-      "optional": true
-    }
+    "@ai-sdk/provider": ">=2.0.0"
   },
   "simple-git-hooks": {
-    "pre-commit": "bun run lint && bun run format:check"
+    "pre-commit": "npm run lint && npm run format:check"
   },
   "engines": {
-    "opencode": ">=1.3.13"
+    "node": ">=26.4.0",
+    "opencode": ">=2.0.16"
   }
 }

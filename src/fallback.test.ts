@@ -3,9 +3,9 @@
  * round-trip (prompt.ts), stream metadata attachment (stream.ts), and
  * refusal error wording.
  *
- * Run with: bun test src/fallback.test.ts
+ * Run with: npx vitest run src/fallback.test.ts
  */
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import { convertPrompt } from "./prompt.ts"
 import { convertStream } from "./stream.ts"
 

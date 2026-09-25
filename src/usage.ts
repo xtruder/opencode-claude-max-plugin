@@ -201,12 +201,14 @@ const USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
  */
 export async function fetchUsage(
   credentialsPath?: string,
+  signal?: AbortSignal,
 ): Promise<{ data: UsageData | null; retryAfterMs: number }> {
   const creds = readClaudeCredentials(credentialsPath)
   if (!creds) return { data: null, retryAfterMs: 0 }
   if (creds.expiresAt && creds.expiresAt < Date.now()) return { data: null, retryAfterMs: 0 }
 
   const resp = await fetch(USAGE_URL, {
+    signal,
     headers: {
       authorization: `Bearer ${creds.accessToken}`,
       "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",

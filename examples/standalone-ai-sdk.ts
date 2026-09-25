@@ -3,14 +3,14 @@
  * WITHOUT any OpenCode dependencies.
  *
  * Run with:
- *   bun run examples/standalone-ai-sdk.ts
+ *   npm run build && node examples/standalone-ai-sdk.ts
  *
  * Requires either:
  *   - ANTHROPIC_API_KEY env var, or
  *   - ~/.claude/.credentials.json from Claude Code
  */
 import { streamText } from "ai"
-import { createAnthropicSDK } from "../src/index.ts"
+import { createAnthropicSDK } from "../build/index.js"
 
 const systemPrompt =
   "You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user."

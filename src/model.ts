@@ -167,21 +167,9 @@ function supportsContextManagement(apiModelId: string): boolean {
   return !apiModelId.includes("claude-3-")
 }
 
-/**
- * Whether the model uses always-on adaptive thinking driven by
- * `output_config.effort` rather than extended thinking (`type: "enabled"`).
- *
- * These models (Opus 4.7, Opus 4.8, Sonnet 5, Opus 5, Fable 5) default `thinking.display` to
- * "omitted" on the wire — i.e. thinking blocks come back with an EMPTY
- * `thinking` field (only a signature for multi-turn continuity), so the TUI
- * has nothing to render. We must send `thinking: { display: "summarized" }`
- * explicitly to receive the readable summary. (Opus/Sonnet 4.6 use extended
- * thinking, which defaults to "summarized" already, so this must NOT apply to
- * them.) See RESEARCH.md "Claude Opus 4.7" / "Claude Fable 5".
- */
+/** Adaptive models need an explicit display setting for readable reasoning summaries. */
 function usesAdaptiveThinking(apiModelId: string): boolean {
   return (
-    apiModelId.includes("claude-opus-4-7") ||
     apiModelId.includes("claude-opus-4-8") ||
     apiModelId.includes("claude-sonnet-5") ||
     apiModelId.includes("claude-opus-5") ||
@@ -227,10 +215,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
   readonly modelId: string
   readonly supportedUrls: Record<string, RegExp[]> = {}
 
-  /** Model ID sent to the Anthropic API (without our -1m suffix). */
   private readonly apiModelId: string
-  /** Whether this is a 1M context variant (affects only compaction threshold, not API calls). */
-  private readonly is1MContext: boolean
 
   constructor(
     modelId: string,
@@ -240,9 +225,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
   ) {
     this.modelId = modelId
     this.provider = providerName
-    // Strip our -1m suffix — it's a virtual variant, not a real model ID
-    this.is1MContext = modelId.endsWith("-1m")
-    this.apiModelId = this.is1MContext ? modelId.replace(/-1m$/, "") : modelId
+    this.apiModelId = modelId
   }
 
   private buildParams(options: LanguageModelV3CallOptions) {
@@ -335,7 +318,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
         const effort = providerOpts?.effort ?? defaultEffort(this.apiModelId)
         params.output_config = { effort }
 
-        // Adaptive-thinking models (Opus 4.7/4.8/5, Sonnet 5, Fable 5) default
+        // Adaptive-thinking models (Opus 4.8/5, Sonnet 5, Fable 5) default
         // `thinking.display` to "omitted" on the wire, returning empty thinking
         // blocks (signature only) — nothing for the TUI to render. Request the
         // summarized chain-of-thought explicitly. A user-supplied `thinking`
@@ -470,8 +453,6 @@ export class AnthropicSDKModel implements LanguageModelV3 {
 
   /**
    * Build per-request SDK options (headers, signal).
-   * The -1m suffix only controls OpenCode's compaction threshold — no extra
-   * beta header is needed since Opus 4.6 natively supports 1M tokens.
    */
   private buildRequestOptions(
     signal?: AbortSignal,
