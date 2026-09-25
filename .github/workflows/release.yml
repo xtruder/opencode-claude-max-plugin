@@ -52,12 +52,12 @@ jobs:
 
       - name: Publish to npm with OIDC
         env:
-          NPM_DIST_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          NPM_DIST_TAG: ${{ contains(github.ref_name, '-rc.') && 'next' || 'latest' }}
         run: npm publish --access public --tag "$NPM_DIST_TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          make_latest: ${{ contains(github.ref_name, '-rc.') && 'false' || 'true' }}
