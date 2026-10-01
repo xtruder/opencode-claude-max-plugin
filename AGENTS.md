@@ -209,6 +209,7 @@ src/
 ├── credentials.ts        # Claude Code OAuth credentials reader + CLI refresh
 ├── usage.ts              # Usage types, fetchUsage(), cachedUsage, formatReset()
 ├── pause-turn.ts         # pause_turn continuation handling
+├── provider-metadata.ts  # Part metadata keys OpenCode v2 persists and replays
 ├── cch.ts                # Legacy CCH research utility (removed from CC 2.1.220 requests)
 ├── *.test.ts             # Vitest suites; model.test.ts hits the real API (opt-in)
 ├── claudecode-system*.txt # Distilled base and model-specific Claude Code prompts
@@ -231,7 +232,7 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 2. **Tool name mapping** is bidirectional: OpenCode v2 tool IDs ↔ Claude Code names (`shell`→`Bash`, `subagent`→`Agent`, `webfetch`→`WebFetch`, `websearch`→`WebSearch`, `read`→`Read`, …). The `toClaudeToolName()` / `toOpencodeToolName()` functions in `tool-names.ts` handle this. Unmapped IDs reach the model as-is; when OpenCode renames a tool, verify the outgoing `tools` list via the cache proxy
 3. **MCP tools** follow `server_tool` → `mcp__server__tool` format. Server names are auto-detected from OpenCode config files
 4. **`tool-input-start` id must equal `tool-call` toolCallId** — OpenCode's processor correlates them; mismatch causes "Tool execution aborted"
-5. **Thinking signatures** from `signature_delta` stream events must be stored in `providerMetadata.anthropic.signature` and passed back in conversation history
+5. **Thinking signatures** from `signature_delta` stream events must be stored in part `providerMetadata` under `anthropic-sdk` (the key OpenCode v2 persists and replays as `providerOptions`) as well as `anthropic`, and passed back in conversation history. Use `anthropicMetadata()` / `readAnthropicMetadata()` from `provider-metadata.ts`
 6. **`context-1m-2025-08-07` beta** is only added dynamically in the fetch wrapper when body exceeds 600K chars — never always-on (triggers billing check)
 7. **`anthropic-ratelimit-unified-status: over_limit`** is the authoritative signal for subscription exhaustion — do not match on error message text
 8. **Single cache breakpoint on `messages[-1].content[-1]`** for OAuth multi-turn cache to hit. Matches Claude Code's wire format. See "Prompt Caching" in RESEARCH.md

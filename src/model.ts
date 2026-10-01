@@ -18,6 +18,7 @@ import {
   withPauseTurnContinuation,
 } from "./pause-turn.ts"
 import { convertPrompt } from "./prompt.ts"
+import { anthropicMetadata } from "./provider-metadata.ts"
 import { convertStream } from "./stream.ts"
 import { toOpencodeToolName } from "./tool-names.ts"
 import { convertToolChoice, convertTools } from "./tools.ts"
@@ -583,7 +584,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
           content.push({
             type: "text",
             text: block.text,
-            ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+            ...(meta ? { providerMetadata: anthropicMetadata(meta) } : {}),
           })
           break
         }
@@ -594,7 +595,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
             toolCallId: block.id,
             toolName: toOpencodeToolName(block.name),
             input: JSON.stringify(block.input),
-            ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+            ...(meta ? { providerMetadata: anthropicMetadata(meta) } : {}),
           })
           break
         }
@@ -611,7 +612,7 @@ export class AnthropicSDKModel implements LanguageModelV3 {
             content.push({
               type: "reasoning",
               text: anyBlock.thinking,
-              providerMetadata: Object.keys(meta).length > 0 ? { anthropic: meta } : undefined,
+              providerMetadata: Object.keys(meta).length > 0 ? anthropicMetadata(meta) : undefined,
             })
           }
           break

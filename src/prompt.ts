@@ -1,5 +1,6 @@
 import type { LanguageModelV3Message, LanguageModelV3Prompt } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { readAnthropicMetadata } from "./provider-metadata.ts"
 import { toClaudeToolName } from "./tool-names.ts"
 
 type AnthropicMessage = Anthropic.MessageCreateParams["messages"][number]
@@ -95,9 +96,7 @@ function convertAssistantMessage(
     // echoed verbatim — the block's position separates the declining and
     // serving models' thinking verification chains. The display-only
     // `servedBy` metadata is intentionally not echoed.
-    const fallback =
-      (part as any).providerMetadata?.anthropic?.fallback ??
-      (part as any).providerOptions?.anthropic?.fallback
+    const fallback = readAnthropicMetadata(part)?.fallback
     if (fallback?.from?.model && fallback?.to?.model) {
       content.push({
         type: "fallback",
@@ -114,12 +113,10 @@ function convertAssistantMessage(
         break
       case "reasoning": {
         // Map reasoning to Anthropic thinking blocks
-        // Signature comes from providerMetadata (set by us in stream.ts/model.ts)
-        // or providerOptions (set by the caller)
-        const signature =
-          (part as any).providerMetadata?.anthropic?.signature ??
-          (part as any).providerOptions?.anthropic?.signature ??
-          ""
+        // Signature comes from providerOptions (replayed by OpenCode under
+        // "anthropic-sdk", or "anthropic" for direct AI SDK callers) or
+        // providerMetadata (set by us in stream.ts/model.ts)
+        const signature = readAnthropicMetadata(part)?.signature ?? ""
         if (signature) {
           content.push({
             type: "thinking",

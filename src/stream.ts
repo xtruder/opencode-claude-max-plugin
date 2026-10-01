@@ -1,5 +1,6 @@
 import type { LanguageModelV3FinishReason, LanguageModelV3StreamPart } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { anthropicMetadata } from "./provider-metadata.ts"
 import { toOpencodeToolName } from "./tool-names.ts"
 
 type MessageStreamEvent = Anthropic.MessageStreamEvent
@@ -242,7 +243,7 @@ function processEvent(
         parts.push({
           type: "text-start",
           id,
-          ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+          ...(meta ? { providerMetadata: anthropicMetadata(meta) } : {}),
         })
       } else if (block.type === "thinking") {
         const id = generateId()
@@ -251,7 +252,7 @@ function processEvent(
         parts.push({
           type: "reasoning-start",
           id,
-          ...(meta ? { providerMetadata: { anthropic: meta } } : {}),
+          ...(meta ? { providerMetadata: anthropicMetadata(meta) } : {}),
         })
       } else if (block.type === "tool_use") {
         // Use the Anthropic tool_use ID as the stream block ID
@@ -327,7 +328,7 @@ function processEvent(
         parts.push({
           type: "reasoning-end",
           id: state.id,
-          ...(Object.keys(meta).length > 0 ? { providerMetadata: { anthropic: meta } } : {}),
+          ...(Object.keys(meta).length > 0 ? { providerMetadata: anthropicMetadata(meta) } : {}),
         })
       } else if (state.type === "tool_use") {
         parts.push({ type: "tool-input-end", id: state.id })
@@ -337,7 +338,9 @@ function processEvent(
           toolCallId: state.toolUseId!,
           toolName: state.toolName!,
           input: state.argsText || "{}",
-          ...(state.fallbackMeta ? { providerMetadata: { anthropic: state.fallbackMeta } } : {}),
+          ...(state.fallbackMeta
+            ? { providerMetadata: anthropicMetadata(state.fallbackMeta) }
+            : {}),
         })
       }
 
