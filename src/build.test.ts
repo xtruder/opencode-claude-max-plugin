@@ -65,4 +65,6 @@ test("Vite builds the three Node ESM entrypoints with external runtime dependenc
     const prompt = readFileSync(`src/${name}.txt`, "utf8")
     expect(output).toContain(prompt.split("\n").find((line) => line.length > 40))
   }
+  // A .txt module wrapped twice ships its own `export default "...` source as the prompt.
+  expect(output).not.toContain('export default \\"')
 })

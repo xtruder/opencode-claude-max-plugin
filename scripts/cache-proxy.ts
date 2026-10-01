@@ -196,7 +196,8 @@ http
       const upstream = await fetch(opts.upstream + req.url, {
         method: req.method,
         headers: headers as any,
-        body,
+        // fetch rejects GET/HEAD with a body; Claude Code issues GETs at startup
+        body: req.method === "GET" || req.method === "HEAD" ? undefined : body,
       })
 
       const respHeaders = Object.fromEntries(

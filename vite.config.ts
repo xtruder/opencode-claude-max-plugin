@@ -14,7 +14,12 @@ export default defineConfig({
       async load(id) {
         if (id.endsWith(".txt")) {
           this.addWatchFile(id)
-          return `export default ${JSON.stringify(await readFile(id, "utf8"))}`
+          // Rolldown infers moduleType "text" from the .txt extension and would
+          // re-wrap this JS as a string literal unless told otherwise.
+          return {
+            code: `export default ${JSON.stringify(await readFile(id, "utf8"))}`,
+            moduleType: "js",
+          }
         }
       },
     },

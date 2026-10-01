@@ -14,17 +14,17 @@ import { join } from "node:path"
  * tools like repo_clone/repo_overview that have no CC equivalent).
  */
 const BUILTIN_OPENCODE_TO_CLAUDE: Record<string, string> = {
-  task: "Agent",
+  subagent: "Agent",
   question: "AskUserQuestion",
   plan_exit: "ExitPlanMode",
-  bash: "Bash",
+  shell: "Bash",
   glob: "Glob",
   grep: "Grep",
   read: "Read",
   edit: "Edit",
   write: "Write",
-  fetch: "WebFetch",
-  search: "WebSearch",
+  webfetch: "WebFetch",
+  websearch: "WebSearch",
   todowrite: "TodoWrite",
   skill: "Skill",
   apply_patch: "ApplyPatch",
@@ -115,7 +115,7 @@ function splitMcpToolName(name: string): { server: string; tool: string } | null
 /**
  * Convert an OpenCode tool name to a Claude Code tool name.
  *
- * Built-in: `bash` → `Bash`, `task` → `Agent`, etc.
+ * Built-in: `shell` → `Bash`, `subagent` → `Agent`, etc.
  * MCP: `context7_query-docs` → `mcp__context7__query-docs`
  */
 export function toClaudeToolName(opencodeName: string): string {
@@ -135,7 +135,7 @@ export function toClaudeToolName(opencodeName: string): string {
 /**
  * Convert a Claude Code tool name back to an OpenCode tool name.
  *
- * Built-in: `Bash` → `bash`, `Agent` → `task`, etc.
+ * Built-in: `Bash` → `shell`, `Agent` → `subagent`, etc.
  * MCP: `mcp__context7__query-docs` → `context7_query-docs`
  */
 export function toOpencodeToolName(claudeName: string): string {
