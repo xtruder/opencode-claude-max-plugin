@@ -8,41 +8,34 @@ An OpenCode provider plugin that routes requests through `@anthropic-ai/sdk` usi
 
 ### Build
 
-```bash
-bun run build
-```
-
-Bundles `src/index.ts` and `src/server.ts` to `build/` via Bun, then emits TypeScript declarations with `tsc`. The TUI plugin (`src/tui.tsx`) is loaded as raw source by Bun — no build step needed. Always rebuild after any source change before testing via OpenCode.
-
-### Type check only (fast)
+Requires Node.js 26.4+ and npm. Bun is only used to run `scripts/cache-proxy.ts`.
 
 ```bash
-npx tsc --noEmit
+npm run build       # vite build + tsc declarations → build/
+npm run dev         # vite build --watch (no declarations)
 ```
 
-### Run all tests
+Vite bundles three ESM entrypoints — `build/index.js` (AI SDK provider), `build/server.js` (OpenCode plugin), `build/tui.js` (TUI) — plus shared chunks; keep `build/` together. Prompt `.txt` files are embedded as strings by the `prompt-text` plugin in `vite.config.ts` (it must return `moduleType: "js"`, otherwise Rolldown re-wraps the module and the prompt ships as `export default "..."` source; `build.test.ts` guards this). Always rebuild after any source change before testing via OpenCode.
+
+### Type check, lint, format
 
 ```bash
-bun test src/*.test.ts
-# or with API key
-ANTHROPIC_API_KEY=sk-ant-... bun test src/*.test.ts
+npm run typecheck
+npm run lint
+npm run format:check     # npm run format to fix
 ```
 
-Tests use `bun:test` (`describe` / `test` / `expect`). Unit tests (CCH, credentials, factory) run without network. `model.test.ts` hits the real API and consumes OAuth quota — requires either `ANTHROPIC_API_KEY` env var or valid `~/.claude/.credentials.json` from Claude Code.
-
-### Run a single test or file
+### Run tests
 
 ```bash
-bun test src/cch.test.ts                          # one file
-bun test src/cch.test.ts -t "billing"             # filter by name pattern
-bun test src/*.test.ts --bail                     # stop at first failure
+npm test                                   # builds, then runs offline Vitest suite
+npx vitest run src/cch.test.ts             # one file (build first if it touches build/)
+npx vitest run src/cch.test.ts -t billing  # filter by name pattern
+npm run test:live                          # also runs model.test.ts against the real API
+npm run test:tui-smoke                     # isolated TUI check; needs opencode, uv
 ```
 
-### Skip the API-hitting tests
-
-```bash
-bun test src/cch.test.ts src/credentials.test.ts src/index.test.ts   # unit only
-```
+Tests use Vitest (`describe` / `test` / `expect` from `vitest`). `model.test.ts` is excluded unless `CLAUDE_LIVE_TESTS=1`; it consumes OAuth quota and requires `ANTHROPIC_API_KEY` or valid `~/.claude/.credentials.json`.
 
 ### Release
 
@@ -50,38 +43,41 @@ bun test src/cch.test.ts src/credentials.test.ts src/index.test.ts   # unit only
 npm version patch                # bumps version, commits, and creates git tag automatically
 git push origin main             # push the version commit
 git push origin vX.Y.Z           # push the tag (use the version printed by npm version)
-# GitHub Actions (.github/workflows/release.yml) handles npm publish automatically
+# GitHub Actions (.github/workflows/release.yml) publishes to npm; it can take
+# a few minutes after the workflow succeeds before `npm view` shows the version
 ```
+
+Installed copies update with `opencode plugin update`, then restart the server (`systemctl --user restart opencode.service`).
 
 ---
 
 ## Testing Locally with OpenCode
 
-### Setup (first time)
+### Setup: load the local build
 
-Generate local dev config files that point to the build output and TUI source:
+OpenCode v2 loads plugins as packages: point `plugins[].package` at the `build/` directory. Plain `opencode run` attaches to the background service, which runs the _installed_ npm plugin; use `--standalone` to get a private server that reads your config. The global config usually also loads the published `@xtruder/opencode-claude-max-plugin`, which wins over a local copy, so use an isolated config dir:
 
 ```bash
-bun run dev:config
+mkdir -p /tmp/opencode/xdg/opencode
+echo "{\"plugins\":[{\"package\":\"file://$PWD/build\"}]}" > /tmp/opencode/xdg/opencode/opencode.json
+export XDG_CONFIG_HOME=/tmp/opencode/xdg   # for the commands below
 ```
 
-This creates `.opencode/opencode.json` (server plugin + provider) and `.opencode/tui.json` (TUI plugin) with absolute `file://` paths. Since it uses local paths, rebuilding (`bun run build`) is enough — no reinstall needed.
+Rebuilding (`npm run build`) is enough between runs — no reinstall needed. A stale v1-style `.opencode/opencode.json` (`"plugin": [".../build/server.js"]`) is ignored by v2 with a "configured plugin path must be a directory" warning.
 
 ### Test a single prompt via CLI
 
 ```bash
 # Uses ~/.claude/.credentials.json automatically
-opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
-opencode run -m "anthropic-sdk/claude-sonnet-4-6" "What is 2+2?"
-opencode run -m "anthropic-sdk/claude-sonnet-5" "What is 2+2?"
-opencode run -m "anthropic-sdk/claude-opus-5-5" "What model are you?"
-opencode run -m "anthropic-sdk/claude-opus-4-6" "What model are you?"
+opencode run --standalone -m "anthropic-sdk/claude-haiku-4-5" "Say OK"
+opencode run --standalone -m "anthropic-sdk/claude-sonnet-5" "What is 2+2?"
+opencode run --standalone -m "anthropic-sdk/claude-opus-5-5" "What model are you?"
 ```
 
-### Test with tool use (file reading)
+### Test with tool use
 
 ```bash
-opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Read package.json and tell me the package name"
+opencode run --standalone -m "anthropic-sdk/claude-haiku-4-5" "Read package.json and tell me the package name"
 ```
 
 ### Check usage
@@ -91,8 +87,10 @@ In the TUI, type `/usage` to open the usage dialog. The sidebar also shows live 
 ### Debug with logs
 
 ```bash
-opencode run --print-logs --log-level DEBUG -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK" 2>&1 | grep -E "install|error|ERROR"
+opencode run --standalone --print-logs --log-level debug -m "anthropic-sdk/claude-haiku-4-5" "Say OK" 2>&1 | grep -E "level=(WARN|ERROR)"
 ```
+
+`--print-logs` only includes server logs with `--standalone`. "Model unavailable: anthropic-sdk/…" means the plugin did not load — check the WARN lines for the plugin path.
 
 ### Intercept API requests (compare with Claude Code)
 
@@ -106,13 +104,14 @@ bun scripts/cache-proxy.ts -d -D -p 9000         # dump request + response bodie
 bun scripts/cache-proxy.ts --help                # all options
 
 # If port is stuck from a previous run:
-fuser -k 19827/tcp                               # or: kill -9 $(lsof -ti :19827)
+pkill -f cache-proxy.ts                          # or: kill -9 $(lsof -ti :19827)
 
-# Terminal 2: run OpenCode through proxy
-ANTHROPIC_BASE_URL=http://localhost:19827 opencode run -m "anthropic-sdk/claude-haiku-4-5-20251001" "Say OK"
+# Terminal 2: run OpenCode through proxy (--standalone so the env var reaches the server)
+ANTHROPIC_BASE_URL=http://localhost:19827 opencode run --standalone -m "anthropic-sdk/claude-haiku-4-5" "Say OK"
 
-# Or run Claude Code through it (same env var)
-ANTHROPIC_BASE_URL=http://localhost:19827 claude
+# Or capture Claude Code's reference request (same env var). Run it from an empty
+# dir; the capture is in req-NNN-<model>.json even if the CLI then stalls.
+ANTHROPIC_BASE_URL=http://localhost:19827 claude -p --model claude-opus-5-5 "Say OK"
 
 # Inspect captures (with -d): byte-diff prefixes across consecutive turns to
 # track down what's mutating in the cached prefix
@@ -143,55 +142,54 @@ grep -E "REQ|RESP" /tmp/opencode/cache-proxy/proxy.log | grep -v "haiku\|429"
 
 ```bash
 # Continue the last session (any model — model gets switched per invocation)
-opencode run -m "anthropic-sdk/claude-opus-5" -c "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5-5" -c "Just say OK"
 
 # Continue a specific session by id
-opencode run -m "anthropic-sdk/claude-opus-5" --session ses_XXXX "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5-5" --session ses_XXXX "Just say OK"
 
 # Fork before continuing (creates a new session branched from the target)
-opencode run -m "anthropic-sdk/claude-opus-5" --session ses_XXXX --fork "Just say OK"
+opencode run -m "anthropic-sdk/claude-opus-5-5" --session ses_XXXX --fork "Just say OK"
 
 # Pin a fresh session to a title (otherwise opencode auto-generates one)
-opencode run -m "anthropic-sdk/claude-opus-5" --title "cache-repro" "First message"
+opencode run -m "anthropic-sdk/claude-opus-5-5" --title "cache-repro" "First message"
 ```
 
 **Caveat**: continuing a session that contains coding history will often cause the model to keep coding. For pure cache-behavior tests, either fork a clean session ("capital of France" style) or send a very explicit no-op instruction like `"Just say OK and nothing else. Do not write any code or edit any files."`
 
 ### Find sessions and inspect token usage in the OpenCode DB
 
-OpenCode stores sessions and messages in `~/.local/share/opencode/opencode.db` (SQLite). The schema is stable enough to query directly.
+OpenCode stores sessions in `~/.local/share/opencode/opencode.db` (SQLite). v2 data lives in `session_v2` and `session_message`; the v1 `session` / `message` / `part` tables only hold pre-migration history.
 
 ```bash
-# List recent sessions (filter out auto-generated noise)
+# List recent sessions (title, workspace directory)
 sqlite3 ~/.local/share/opencode/opencode.db \
-  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 30" \
-  | grep -iv "new session\|confirmation\|agent ready\|agent setup"
+  "SELECT id, title, directory FROM session_v2 ORDER BY time_updated DESC LIMIT 30"
 
-# Find a session by keyword in title
+# Check token usage per assistant message for a session — verifies caching is hitting
 sqlite3 ~/.local/share/opencode/opencode.db \
-  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 100" \
-  | grep -i "caching"
-
-# Check token usage (input/output/cache_read/cache_write) for the last N messages
-# of a specific session — useful to verify caching is actually hitting
-sqlite3 ~/.local/share/opencode/opencode.db \
-  "SELECT data FROM message WHERE session_id='ses_XXXX' AND data LIKE '%tokens%' ORDER BY time_created DESC LIMIT 10" \
+  "SELECT data FROM session_message WHERE session_id='ses_XXXX' AND type='assistant' ORDER BY seq DESC LIMIT 10" \
   | python3 -c "
 import sys, json
 for line in sys.stdin:
     try:
         d = json.loads(line)
-        t = d.get('tokens', {})
-        c = t.get('cache', {})
-        print(f\"{d.get('providerID','?')}/{d.get('modelID','?')} input={t.get('input',0)} output={t.get('output',0)} cache_read={c.get('read',0)} cache_write={c.get('write',0)}\")
+        t = d.get('tokens', {}); c = t.get('cache', {}); m = d.get('model', {})
+        print(f\"{m.get('providerID','?')}/{m.get('id','?')} input={t.get('input',0)} output={t.get('output',0)} cache_read={c.get('read',0)} cache_write={c.get('write',0)}\")
     except: pass
 "
+
+# Tool usage per model — e.g. to spot a model preferring Bash over Edit/Read
+sqlite3 ~/.local/share/opencode/opencode.db "
+  SELECT json_extract(s.data,'$.model.id'), json_extract(c.value,'$.name'), count(*)
+  FROM session_message s, json_each(s.data,'$.content') c
+  WHERE s.type='assistant' AND json_extract(c.value,'$.type')='tool'
+  GROUP BY 1,2 ORDER BY 1, 3 DESC"
 
 # Healthy multi-turn pattern: cache_read grows ~monotonically across turns,
 # cache_write per turn is bounded by the new tail delta (hundreds–low thousands)
 ```
 
-`message.data` is the JSON-serialized assistant/user message (role, content, providerID, modelID, tokens, etc.). `session.directory` is the workspace path the session was started from. Tables: `session`, `message`, `part`, `todo`, `permission`, `event`, `account`.
+`session_message.type` is `user`, `assistant`, `system`, `synthetic`, `compaction`, or `idle`. Assistant `data` holds `model` (`{id, providerID, variant}`), `tokens`, and `content` — an array of `text` / `reasoning` / `tool` parts, where tool parts carry the OpenCode tool ID in `name` and `state.input` / `state.status`.
 
 ---
 
@@ -200,8 +198,9 @@ for line in sys.stdin:
 ```
 src/
 ├── index.ts              # createAnthropicSDK() factory, auth resolution, fetch wrapper
-├── server.ts             # V1 plugin format wrapper (default export { id, server })
+├── server.ts             # OpenCode v2 plugin: registers provider/models, system-prompt hook
 ├── tui.tsx               # TUI plugin: sidebar usage widget + /usage command (SolidJS)
+├── tui-state.ts          # TUI usage polling state
 ├── model.ts              # AnthropicSDKModel — LanguageModelV3 (doGenerate + doStream)
 ├── prompt.ts             # AI SDK prompt → Anthropic Messages API converter
 ├── stream.ts             # Anthropic SSE events → AI SDK LanguageModelV3StreamPart
@@ -209,17 +208,15 @@ src/
 ├── tool-names.ts         # Bidirectional tool name mapping (OpenCode ↔ Claude Code)
 ├── credentials.ts        # Claude Code OAuth credentials reader + CLI refresh
 ├── usage.ts              # Usage types, fetchUsage(), cachedUsage, formatReset()
+├── pause-turn.ts         # pause_turn continuation handling
 ├── cch.ts                # Legacy CCH research utility (removed from CC 2.1.220 requests)
-├── credentials.test.ts   # Unit + integration tests for credentials
-├── index.test.ts         # Tests for createAnthropicSDK factory
-├── model.test.ts         # Integration tests for model (API calls)
-├── cch.test.ts           # Tests for CCH computation
+├── *.test.ts             # Vitest suites; model.test.ts hits the real API (opt-in)
 ├── claudecode-system*.txt # Distilled base and model-specific Claude Code prompts
 └── fixtures/              # Captured OpenCode request data for caching tests
     └── opencode-tools.json
 
 scripts/
-├── dev-config.ts         # Generates .opencode/{opencode,tui}.json for local dev
+├── tui-smoke.py          # Isolated TUI smoke test (npm run test:tui-smoke)
 └── cache-proxy.ts        # Logging proxy for api.anthropic.com — used to debug
                           # prompt-cache regressions (see "Intercept API requests")
 ```
@@ -231,7 +228,7 @@ scripts/
 These must be maintained — they are load-bearing for Claude Code compatibility:
 
 1. **Billing system block must be first** in `params.system` for OAuth requests — without it, Sonnet/Opus return HTTP 400
-2. **Tool name mapping** is bidirectional: OpenCode snake_case ↔ Claude Code PascalCase. The `toClaudeToolName()` / `toOpencodeToolName()` functions in `tool-names.ts` handle this
+2. **Tool name mapping** is bidirectional: OpenCode v2 tool IDs ↔ Claude Code names (`shell`→`Bash`, `subagent`→`Agent`, `webfetch`→`WebFetch`, `websearch`→`WebSearch`, `read`→`Read`, …). The `toClaudeToolName()` / `toOpencodeToolName()` functions in `tool-names.ts` handle this. Unmapped IDs reach the model as-is; when OpenCode renames a tool, verify the outgoing `tools` list via the cache proxy
 3. **MCP tools** follow `server_tool` → `mcp__server__tool` format. Server names are auto-detected from OpenCode config files
 4. **`tool-input-start` id must equal `tool-call` toolCallId** — OpenCode's processor correlates them; mismatch causes "Tool execution aborted"
 5. **Thinking signatures** from `signature_delta` stream events must be stored in `providerMetadata.anthropic.signature` and passed back in conversation history
@@ -255,10 +252,9 @@ OAuth tokens use `Authorization: Bearer` with the `oauth-2025-04-20` beta. The b
 
 ## Testing Notes
 
-- Integration tests use `claude-haiku-4-5-20251001` by default (cheapest model); thinking tests use `claude-sonnet-4-6`
-- Prompt-caching tests require OAuth credentials with caching-capable routing (skipped under API key)
+- Live tests (`model.test.ts`) use Haiku 4.5 (cheapest model) for most cases, including thinking; one case covers `claude-sonnet-5`
+- Thinking and prompt-caching tests require OAuth credentials and are skipped under an API key
 - Fixture files in `src/fixtures/` contain real captured OpenCode request data — don't modify them arbitrarily as the caching test depends on their size (~20K tokens)
-- The `assert()` helper throws on failure; the `test()` wrapper catches and records
 
 ---
 
