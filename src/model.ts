@@ -178,7 +178,9 @@ function usesAdaptiveThinking(apiModelId: string): boolean {
 }
 
 function defaultEffort(apiModelId: string): string {
-  if (apiModelId.includes("claude-opus-5-5")) return "medium"
+  if (apiModelId.includes("claude-opus-5-5") || apiModelId.includes("claude-sonnet-5-5")) {
+    return "medium"
+  }
   if (
     apiModelId.includes("claude-opus-5") ||
     apiModelId.includes("claude-sonnet-5") ||

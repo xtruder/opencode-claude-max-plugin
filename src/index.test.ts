@@ -15,6 +15,7 @@ import {
   CLAUDE_CODE_NEW_SYSTEM_PROMPT,
   CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
   CLAUDE_CODE_SONNET5_SYSTEM_PROMPT,
+  CLAUDE_CODE_SONNET55_SYSTEM_PROMPT,
   CLAUDE_CODE_SYSTEM_PROMPT,
   buildPluginModels,
   createAnthropicSDK,
@@ -188,6 +189,10 @@ describe("selectClaudePromptForModel", () => {
     expect(CLAUDE_CODE_SONNET5_SYSTEM_PROMPT).not.toContain(
       "Assist with authorized security testing",
     )
+    expect(selectClaudePromptForModel("claude-sonnet-5-5")).toBe(CLAUDE_CODE_SONNET55_SYSTEM_PROMPT)
+    expect(CLAUDE_CODE_SONNET55_SYSTEM_PROMPT).not.toContain(
+      "Assist with authorized security testing",
+    )
     expect(selectClaudePromptForModel("claude-opus-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-opus-5-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
@@ -215,6 +220,12 @@ describe("buildPluginModels", () => {
         limit: { context: 1_000_000, output: 128_000 },
         cost: { input: 10, output: 50, cache_read: 0.25, cache_write: 12.5 },
         options: { effort: "high", refusalFallback: "default" },
+      })
+      expect(models["claude-sonnet-5-5"]).toMatchObject({
+        name: "Claude Sonnet 5.5",
+        limit: { context: 1_000_000, output: 128_000 },
+        cost: { input: 2, output: 10, cache_read: 0.2, cache_write: 2.5 },
+        options: { effort: "medium", refusalFallback: "default" },
       })
       expect(models["claude-sonnet-5"].cost).toEqual({
         input: 2,

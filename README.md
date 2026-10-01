@@ -63,20 +63,21 @@ Choose a model from the `anthropic-sdk` provider in OpenCode, or run:
 
 ```sh
 opencode run --standalone -m anthropic-sdk/claude-haiku-4-5 'Reply with exactly OK.'
-opencode run --standalone -m 'anthropic-sdk/claude-sonnet-5#high' 'Explain this code.'
+opencode run --standalone -m 'anthropic-sdk/claude-sonnet-5-5#high' 'Explain this code.'
 ```
 
 Registered models (each row is a separate selectable entry):
 
-| Model            | OpenCode model ID  |
-| ---------------- | ------------------ |
-| Claude Haiku 4.5 | `claude-haiku-4-5` |
-| Claude Sonnet 5  | `claude-sonnet-5`  |
-| Claude Opus 4.8  | `claude-opus-4-8`  |
-| Claude Opus 5    | `claude-opus-5`    |
-| Claude Opus 5.5  | `claude-opus-5-5`  |
-| Claude Fable 5   | `claude-fable-5`   |
-| Claude Fable 5.1 | `claude-fable-5-1` |
+| Model             | OpenCode model ID   |
+| ----------------- | ------------------- |
+| Claude Haiku 4.5  | `claude-haiku-4-5`  |
+| Claude Sonnet 5   | `claude-sonnet-5`   |
+| Claude Sonnet 5.5 | `claude-sonnet-5-5` |
+| Claude Opus 4.8   | `claude-opus-4-8`   |
+| Claude Opus 5     | `claude-opus-5`     |
+| Claude Opus 5.5   | `claude-opus-5-5`   |
+| Claude Fable 5    | `claude-fable-5`    |
+| Claude Fable 5.1  | `claude-fable-5-1`  |
 
 [Claude Opus 5](https://platform.claude.com/docs/en/models/opus-5/overview) remains available as a legacy model; it is not an alias for [Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview). Anthropic names it “Claude Opus 5”, not “Claude Opus 5.0”.
 

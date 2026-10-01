@@ -211,8 +211,9 @@ http
       res.writeHead(upstream.status, respHeaders)
 
       const respChunks: Buffer[] = []
-      const reader = upstream.body!.getReader()
-      while (true) {
+      // HEAD and 204/304 responses have no body; Claude Code 2.1.286 probes with HEAD
+      const reader = upstream.body?.getReader()
+      while (reader) {
         const { done, value } = await reader.read()
         if (done) break
         respChunks.push(Buffer.from(value))

@@ -4,6 +4,7 @@ import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt"
 import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt"
 import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt"
 import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt"
+import CLAUDE_SONNET55_SYSTEM_PROMPT from "./claudecode-system-sonnet55.txt"
 import CLAUDE_MAIN_SYSTEM_PROMPT from "./claudecode-system.txt"
 import { getCachedCredentials, readClaudeCredentials } from "./credentials.ts"
 import { AnthropicSDKModel, FALLBACK_BETAS_HEADER } from "./model.ts"
@@ -13,17 +14,22 @@ export const CLAUDE_CODE_SYSTEM_PROMPT = CLAUDE_MAIN_SYSTEM_PROMPT
 export const CLAUDE_CODE_NEW_SYSTEM_PROMPT = CLAUDE_NEW_SYSTEM_PROMPT
 export const CLAUDE_CODE_OPUS5_SYSTEM_PROMPT = CLAUDE_OPUS5_SYSTEM_PROMPT
 export const CLAUDE_CODE_SONNET5_SYSTEM_PROMPT = CLAUDE_SONNET5_SYSTEM_PROMPT
+export const CLAUDE_CODE_SONNET55_SYSTEM_PROMPT = CLAUDE_SONNET55_SYSTEM_PROMPT
 export const CLAUDE_CODE_FABLE5_SYSTEM_PROMPT = CLAUDE_FABLE5_SYSTEM_PROMPT
 
 /**
  * Select the Claude Code system prompt that matches the given model.
  *
- * Claude Code ships per-model prompts. Sonnet 5 gets its current long-form
+ * Claude Code ships per-model prompts. Sonnet 5.5 gets the condensed harness
+ * without delivery and correction guidance; Sonnet 5 gets its long-form
  * harness; Opus 5 gets its condensed scope, delivery, and correction guidance;
  * Fable 5 gets its communication guidance; Opus 4.8 gets the shorter earlier
  * harness. Older models get the legacy long-form prompt.
  */
 export function selectClaudePromptForModel(modelId: string): string {
+  if (modelId.includes("sonnet-5-5")) {
+    return CLAUDE_SONNET55_SYSTEM_PROMPT
+  }
   if (modelId.includes("sonnet-5")) {
     return CLAUDE_SONNET5_SYSTEM_PROMPT
   }
@@ -128,6 +134,26 @@ export function buildPluginModels(isOAuth: boolean) {
         output: ["text"] as Array<"text">,
       },
       options: { effort: "high" },
+      ...effortVariants,
+    },
+    /**
+     * Sonnet 5.5 (released 2026-09-28) shares Sonnet 5's limits and pricing.
+     * The API defaults to high effort, but Claude Code 2.1.286 sends medium
+     * and Anthropic recommends medium for agentic coding on this model.
+     */
+    "claude-sonnet-5-5": {
+      name: "Claude Sonnet 5.5",
+      reasoning: true,
+      tool_call: true,
+      attachment: true,
+      temperature: false,
+      limit: { context: 1_000_000, output: 128_000 },
+      cost: cost("sonnet5"),
+      modalities: {
+        input: ["text", "image", "pdf"] as Array<"text" | "image" | "pdf">,
+        output: ["text"] as Array<"text">,
+      },
+      options: { effort: "medium", refusalFallback: "default" },
       ...effortVariants,
     },
     "claude-opus-4-8": {

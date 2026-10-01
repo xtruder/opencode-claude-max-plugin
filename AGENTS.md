@@ -236,7 +236,7 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 7. **`anthropic-ratelimit-unified-status: over_limit`** is the authoritative signal for subscription exhaustion — do not match on error message text
 8. **Single cache breakpoint on `messages[-1].content[-1]`** for OAuth multi-turn cache to hit. Matches Claude Code's wire format. See "Prompt Caching" in RESEARCH.md
 9. **User message content must always be array-of-blocks**, never a plain string. Otherwise the same logical content gets different byte shapes turn-to-turn → cache miss
-10. **Claude 5 prompts are model-specific** — Sonnet 5, Opus 5, and Fable 5 use distinct distilled prompt files. Do not reuse one model's prompt for another. The explicit cyber-safety directive and dynamic environment/git-status tail are intentionally excluded; OpenCode appends its own environment and project instructions.
+10. **Claude 5 prompts are model-specific** — Sonnet 5, Sonnet 5.5, Opus 5, and Fable 5 use distinct distilled prompt files. Do not reuse one model's prompt for another. The explicit cyber-safety directive and dynamic environment/git-status tail are intentionally excluded; OpenCode appends its own environment and project instructions.
 
 ---
 
