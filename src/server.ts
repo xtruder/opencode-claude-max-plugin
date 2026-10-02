@@ -1,6 +1,14 @@
 import type { Plugin } from "@opencode/plugin"
 import { buildPluginModels, PROVIDER_ID, resolveAuth, selectClaudePromptForModel } from "./index.ts"
 
+// Claude Code's shell keeps its working directory between calls, while OpenCode
+// starts every shell call in the session directory. Models trained on Claude
+// Code assume the former, so after one `cd` elsewhere they prefix every later
+// command with `cd <session dir> &&`. The `workdir` sentence reuses OpenCode's
+// own parameter hint.
+const SHELL_CWD_NOTE =
+  "Each shell tool call starts in the working directory from <env>; a `cd` lasts only for that call. When possible, avoid changing directories in the command and set the shell tool's `workdir` instead."
+
 // Adapted from feature/opencode-v2-compatibility. The stable V2 API splits
 // catalog into provider/model domains; aisdk: retains our existing transport.
 export default {
@@ -70,7 +78,10 @@ export default {
         event.system.splice(
           0,
           event.system.length,
-          { type: "text", text: selectClaudePromptForModel(event.model.id) },
+          {
+            type: "text",
+            text: `${selectClaudePromptForModel(event.model.id)}\n${SHELL_CWD_NOTE}\n`,
+          },
           ...tail.map((part) =>
             Object.assign({}, part, {
               text: part.text
