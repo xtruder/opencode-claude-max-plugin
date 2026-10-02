@@ -99,8 +99,9 @@ Use the bundled logging proxy at `scripts/cache-proxy.ts`. It forwards to `api.a
 ```bash
 # Terminal 1: start proxy (defaults to :19827)
 bun scripts/cache-proxy.ts                       # summary only
-bun scripts/cache-proxy.ts -d                    # also dump request bodies
+bun scripts/cache-proxy.ts -d                    # also dump request bodies + redacted headers
 bun scripts/cache-proxy.ts -d -D -p 9000         # dump request + response bodies on :9000
+bun scripts/cache-proxy.ts -c                    # capture only: never forward, answer 400 (no quota)
 bun scripts/cache-proxy.ts --help                # all options
 
 # If port is stuck from a previous run:
@@ -112,6 +113,9 @@ ANTHROPIC_BASE_URL=http://localhost:19827 opencode run --standalone -m "anthropi
 # Or capture Claude Code's reference request (same env var). Run it from an empty
 # dir; the capture is in req-NNN-<model>.json even if the CLI then stalls.
 ANTHROPIC_BASE_URL=http://localhost:19827 claude -p --model claude-opus-5-5 "Say OK"
+# Compare beta flags and SDK version via hdr-NNN.json (anthropic-beta,
+# x-stainless-package-version); the billing block is system[0] in req-NNN-*.json.
+# Interactive `claude` sessions add one CLI-only `!` shell-prefix bullet to the prompt.
 
 # Inspect captures (with -d): byte-diff prefixes across consecutive turns to
 # track down what's mutating in the cached prefix
@@ -237,7 +241,7 @@ These must be maintained — they are load-bearing for Claude Code compatibility
 7. **`anthropic-ratelimit-unified-status: over_limit`** is the authoritative signal for subscription exhaustion — do not match on error message text
 8. **Single cache breakpoint on `messages[-1].content[-1]`** for OAuth multi-turn cache to hit. Matches Claude Code's wire format. See "Prompt Caching" in RESEARCH.md
 9. **User message content must always be array-of-blocks**, never a plain string. Otherwise the same logical content gets different byte shapes turn-to-turn → cache miss
-10. **Claude 5 prompts are model-specific** — Sonnet 5, Sonnet 5.5, Opus 5, and Fable 5 use distinct distilled prompt files. Do not reuse one model's prompt for another. The explicit cyber-safety directive and dynamic environment/git-status tail are intentionally excluded; OpenCode appends its own environment and project instructions.
+10. **Claude 5 prompts follow Claude Code's per-model mapping** — Sonnet 5, Opus 5, Fable 5, and Fable 5.1 each use a distinct distilled prompt file; Opus 5.5 shares Sonnet 5.5's file because Claude Code sends both the byte-identical prompt. Only share a prompt when same-version captures prove Claude Code does. The explicit cyber-safety directive, identity blurbs, autonomous-session paragraphs, and dynamic memory/environment/git-status sections are intentionally excluded; OpenCode appends its own environment and project instructions.
 
 ---
 

@@ -12,6 +12,7 @@ import { join } from "node:path"
 import { clearCredentialCache } from "./credentials.ts"
 import {
   CLAUDE_CODE_FABLE5_SYSTEM_PROMPT,
+  CLAUDE_CODE_FABLE51_SYSTEM_PROMPT,
   CLAUDE_CODE_NEW_SYSTEM_PROMPT,
   CLAUDE_CODE_OPUS5_SYSTEM_PROMPT,
   CLAUDE_CODE_SONNET5_SYSTEM_PROMPT,
@@ -167,10 +168,74 @@ describe("createAnthropicSDK", () => {
 
       expect(execSyncSpy).toHaveBeenCalledTimes(1)
       expect(requestAuthorization).toBe(`Bearer ${refreshedToken}`)
-      expect(requestUserAgent).toBe("claude-cli/2.1.280 (external, sdk-cli)")
-      expect(requestBody).toContain("cc_version=2.1.280.790")
+      expect(requestUserAgent).toBe("claude-cli/2.1.286 (external, sdk-cli)")
+      expect(requestBody).toContain("cc_version=2.1.286.ee5")
     } finally {
       execSyncSpy.mockRestore()
+      if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey
+      clearCredentialCache()
+      rmSync(tmpDir, { recursive: true })
+    }
+  })
+
+  test("sends Claude Code 2.1.286 OAuth beta flags per model", async () => {
+    const tmpDir = join(tmpdir(), `test-creds-betas-${Date.now()}`)
+    mkdirSync(tmpDir, { recursive: true })
+    const credPath = join(tmpDir, "credentials.json")
+    writeFileSync(
+      credPath,
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "sk-ant-oat01-test-betas",
+          refreshToken: "sk-ant-ort01-unused",
+          expiresAt: Date.now() + 3_600_000,
+          scopes: ["user:inference"],
+          subscriptionType: "max",
+        },
+      }),
+    )
+
+    // Captured from Claude Code 2.1.286 `claude -p` requests.
+    const base =
+      "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05"
+    const expected: Record<string, string> = {
+      "claude-opus-5-5": `${base},mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-fable-5-1": `${base},mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-sonnet-5-5": `${base},mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-opus-5": `${base},mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-fable-5": `${base},mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-opus-4-8": `${base},mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-sonnet-5": `${base},mid-conversation-system-2026-04-07,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11`,
+      "claude-haiku-4-5":
+        "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,extended-cache-ttl-2025-04-11",
+    }
+
+    const savedKey = process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_API_KEY
+    clearCredentialCache()
+    try {
+      let headers = new Headers()
+      const provider = createAnthropicSDK({
+        credentialsPath: credPath,
+        fetch: (async (_url, init) => {
+          headers = new Headers(init?.headers)
+          return new Response('{"error":{"type":"authentication_error","message":"test"}}', {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          })
+        }) as typeof fetch,
+      })
+      for (const [modelId, betas] of Object.entries(expected)) {
+        try {
+          await provider.languageModel(modelId).doGenerate({
+            prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+            maxOutputTokens: 10,
+          } as any)
+        } catch {}
+        expect(headers.get("anthropic-beta"), modelId).toBe(betas)
+        expect(headers.get("x-stainless-package-version")).toBe("0.127.0")
+      }
+    } finally {
       if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey
       clearCredentialCache()
       rmSync(tmpDir, { recursive: true })
@@ -194,10 +259,19 @@ describe("selectClaudePromptForModel", () => {
       "Assist with authorized security testing",
     )
     expect(selectClaudePromptForModel("claude-opus-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
-    expect(selectClaudePromptForModel("claude-opus-5-5")).toBe(CLAUDE_CODE_OPUS5_SYSTEM_PROMPT)
+    // Claude Code sends Opus 5.5 the same prompt as Sonnet 5.5, not Opus 5's.
+    expect(selectClaudePromptForModel("claude-opus-5-5")).toBe(CLAUDE_CODE_SONNET55_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-opus-4-8")).toBe(CLAUDE_CODE_NEW_SYSTEM_PROMPT)
     expect(selectClaudePromptForModel("claude-fable-5")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
-    expect(selectClaudePromptForModel("claude-fable-5-1")).toBe(CLAUDE_CODE_FABLE5_SYSTEM_PROMPT)
+    expect(selectClaudePromptForModel("claude-fable-5-1")).toBe(CLAUDE_CODE_FABLE51_SYSTEM_PROMPT)
+    for (const excluded of [
+      "Assist with authorized security testing",
+      "This iteration of Claude is",
+      "You are operating autonomously",
+      "# Memory",
+    ]) {
+      expect(CLAUDE_CODE_FABLE51_SYSTEM_PROMPT).not.toContain(excluded)
+    }
     expect(selectClaudePromptForModel("claude-haiku-4-5")).toBe(CLAUDE_CODE_SYSTEM_PROMPT)
   })
 })

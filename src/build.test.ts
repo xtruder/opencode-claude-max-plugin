@@ -60,6 +60,7 @@ test("Vite builds the three Node ESM entrypoints with external runtime dependenc
     "claudecode-system-sonnet5",
     "claudecode-system-opus5",
     "claudecode-system-fable5",
+    "claudecode-system-fable51",
   ]) {
     // Prompt bytes must be embedded as text, never Vite asset URLs.
     const prompt = readFileSync(`src/${name}.txt`, "utf8")

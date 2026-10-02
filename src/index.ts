@@ -1,6 +1,7 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import Anthropic from "@anthropic-ai/sdk"
 import CLAUDE_FABLE5_SYSTEM_PROMPT from "./claudecode-system-fable5.txt"
+import CLAUDE_FABLE51_SYSTEM_PROMPT from "./claudecode-system-fable51.txt"
 import CLAUDE_NEW_SYSTEM_PROMPT from "./claudecode-system-new.txt"
 import CLAUDE_OPUS5_SYSTEM_PROMPT from "./claudecode-system-opus5.txt"
 import CLAUDE_SONNET5_SYSTEM_PROMPT from "./claudecode-system-sonnet5.txt"
@@ -16,18 +17,21 @@ export const CLAUDE_CODE_OPUS5_SYSTEM_PROMPT = CLAUDE_OPUS5_SYSTEM_PROMPT
 export const CLAUDE_CODE_SONNET5_SYSTEM_PROMPT = CLAUDE_SONNET5_SYSTEM_PROMPT
 export const CLAUDE_CODE_SONNET55_SYSTEM_PROMPT = CLAUDE_SONNET55_SYSTEM_PROMPT
 export const CLAUDE_CODE_FABLE5_SYSTEM_PROMPT = CLAUDE_FABLE5_SYSTEM_PROMPT
+export const CLAUDE_CODE_FABLE51_SYSTEM_PROMPT = CLAUDE_FABLE51_SYSTEM_PROMPT
 
 /**
  * Select the Claude Code system prompt that matches the given model.
  *
- * Claude Code ships per-model prompts. Sonnet 5.5 gets the condensed harness
- * without delivery and correction guidance; Sonnet 5 gets its long-form
- * harness; Opus 5 gets its condensed scope, delivery, and correction guidance;
- * Fable 5 gets its communication guidance; Opus 4.8 gets the shorter earlier
- * harness. Older models get the legacy long-form prompt.
+ * Claude Code ships per-model prompts. Sonnet 5.5 and Opus 5.5 share the
+ * condensed harness without delivery and correction guidance; Sonnet 5 gets
+ * its long-form harness; Opus 5 gets its condensed scope, delivery, and
+ * correction guidance; Fable 5.1 gets delivery guidance and strict
+ * final-message writing rules; Fable 5 gets its communication guidance;
+ * Opus 4.8 gets the shorter earlier harness. Older models get the legacy
+ * long-form prompt.
  */
 export function selectClaudePromptForModel(modelId: string): string {
-  if (modelId.includes("sonnet-5-5")) {
+  if (modelId.includes("sonnet-5-5") || modelId.includes("opus-5-5")) {
     return CLAUDE_SONNET55_SYSTEM_PROMPT
   }
   if (modelId.includes("sonnet-5")) {
@@ -35,6 +39,9 @@ export function selectClaudePromptForModel(modelId: string): string {
   }
   if (modelId.includes("opus-5")) {
     return CLAUDE_OPUS5_SYSTEM_PROMPT
+  }
+  if (modelId.includes("fable-5-1")) {
+    return CLAUDE_FABLE51_SYSTEM_PROMPT
   }
   if (modelId.includes("fable-5")) {
     return CLAUDE_FABLE5_SYSTEM_PROMPT
@@ -46,17 +53,23 @@ export function selectClaudePromptForModel(modelId: string): string {
 }
 
 /**
- * Claude Code CLI version to impersonate.
- * Used in user-agent, billing header, and x-stainless-package-version.
+ * Claude Code CLI version to impersonate in the user-agent. The billing
+ * block in model.ts must report the same version.
  */
-const CLAUDE_CODE_VERSION = "2.1.280"
+const CLAUDE_CODE_VERSION = "2.1.286"
+
+/**
+ * @anthropic-ai/sdk version bundled with CLAUDE_CODE_VERSION, sent as
+ * x-stainless-package-version. Keep the package.json pin in sync.
+ */
+const CLAUDE_CODE_SDK_VERSION = "0.127.0"
 
 /**
  * Beta flags that Claude Code sends on every OAuth request.
  * Order and exact values must match what Claude Code sends.
  *
- * Captured from Claude Code 2.1.220 and verified against 2.1.280. Model-conditional flags
- * are appended in wrappedFetch so their order matches the CLI.
+ * Captured from Claude Code 2.1.286. Model-conditional flags are appended in
+ * wrappedFetch so their order matches the CLI.
  *   - thinking-token-count-2026-05-13: estimated_tokens in thinking_delta
  *     stream events (progress hint when display="omitted")
  */
@@ -68,6 +81,26 @@ const OAUTH_BETAS = [
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
 ]
+
+/** Claude Code sends Haiku the same base flags with its own gate moved last. */
+const HAIKU_OAUTH_BETAS = [...OAUTH_BETAS.slice(1), "claude-code-20250219"]
+
+/**
+ * Model-conditional OAuth flags in the order Claude Code 2.1.286 appends
+ * them after the base flags.
+ */
+function modelOAuthBetas(model: string): string[] {
+  const isClaude5 = ["opus-4-8", "opus-5", "sonnet-5", "fable-5"].some((m) => model.includes(m))
+  const isLatest = ["opus-5-5", "sonnet-5-5", "fable-5-1"].some((m) => model.includes(m))
+  return [
+    ...(isClaude5 ? ["mid-conversation-system-2026-04-07"] : []),
+    ...(isLatest ? ["per-turn-control-2026-07-01"] : []),
+    ...(isClaude5 && !model.includes("sonnet") ? ["mid-conversation-tool-changes-2026-07-01"] : []),
+    "advisor-tool-2026-03-01",
+    ...(!model.includes("haiku") ? ["effort-2025-11-24"] : []),
+    "extended-cache-ttl-2025-04-11",
+  ]
+}
 
 /**
  * Beta flags for regular API key auth (no OAuth).
@@ -360,7 +393,7 @@ export function createAnthropicSDK(
     defaultHeaders["x-app"] = "cli"
     defaultHeaders["anthropic-dangerous-direct-browser-access"] = "true"
     // Override x-stainless version to match Claude Code's bundled SDK
-    defaultHeaders["x-stainless-package-version"] = "0.94.0"
+    defaultHeaders["x-stainless-package-version"] = CLAUDE_CODE_SDK_VERSION
   }
 
   const baseFetch = customFetch ?? globalThis.fetch
@@ -399,26 +432,13 @@ export function createAnthropicSDK(
       const model = modelMatch?.[1] ?? ""
 
       // Match Claude Code's model flags and exact ordering.
-      if (
-        model.includes("opus-4-8") ||
-        model.includes("opus-5") ||
-        model.includes("sonnet-5") ||
-        model.includes("fable-5")
-      ) {
-        if (!betas.includes("mid-conversation-system-2026-04-07")) {
-          betas.push("mid-conversation-system-2026-04-07")
-        }
-      }
-      for (const beta of [
-        "advisor-tool-2026-03-01",
-        ...(!model.includes("haiku") ? ["effort-2025-11-24"] : []),
-        "fallback-credit-2026-06-01",
-        "extended-cache-ttl-2025-04-11",
-      ]) {
-        if (!betas.includes(beta)) betas.push(beta)
+      const base = model.includes("haiku") ? HAIKU_OAUTH_BETAS : OAUTH_BETAS
+      const ordered = [...base, ...betas.filter((beta) => !base.includes(beta))]
+      for (const beta of modelOAuthBetas(model)) {
+        if (!ordered.includes(beta)) ordered.push(beta)
       }
 
-      reqHeaders.set("anthropic-beta", betas.join(","))
+      reqHeaders.set("anthropic-beta", ordered.join(","))
       init = { ...init, headers: reqHeaders }
     }
 

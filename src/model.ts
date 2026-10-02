@@ -136,7 +136,7 @@ export const FALLBACK_BETAS_HEADER = "x-anthropic-sdk-fallback-betas"
  */
 const BILLING_SYSTEM_BLOCK = {
   type: "text" as const,
-  text: "x-anthropic-billing-header: cc_version=2.1.280.790; cc_entrypoint=sdk-cli;",
+  text: "x-anthropic-billing-header: cc_version=2.1.286.ee5; cc_entrypoint=sdk-cli;",
 }
 
 /**
