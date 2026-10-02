@@ -16,7 +16,10 @@
  *   -p, --port <n>          listen port (default: 19827)
  *   -o, --out-dir <dir>     output directory (default: /tmp/opencode/cache-proxy)
  *   -d, --dump-requests     dump every request body to <out>/req-NNN-<model>.json
+ *                           and its headers (auth redacted) to <out>/hdr-NNN.json
  *   -D, --dump-responses    dump every response body too
+ *   -c, --capture-only      never forward; dump requests and answer 400 so the
+ *                           client exits without spending quota (implies -d)
  *       --no-clear          do not clear out-dir on startup
  *       --upstream <url>    upstream API base (default: https://api.anthropic.com)
  *   -q, --quiet             do not echo log lines to stdout
@@ -36,7 +39,10 @@ Options:
   -p, --port <n>          listen port (default: 19827)
   -o, --out-dir <dir>     output directory (default: /tmp/opencode/cache-proxy)
   -d, --dump-requests     dump every request body to <out>/req-NNN-<model>.json
+                          and its headers (auth redacted) to <out>/hdr-NNN.json
   -D, --dump-responses    dump every response body to <out>/resp-NNN.txt
+  -c, --capture-only      never forward; dump requests and answer 400 so the
+                          client exits without spending quota (implies -d)
       --no-clear          do not clear out-dir on startup
       --upstream <url>    upstream API base (default: https://api.anthropic.com)
   -q, --quiet             do not echo log lines to stdout
@@ -45,6 +51,7 @@ Options:
 Outputs:
   <out>/proxy.log         human-readable per-request summary
   <out>/req-NNN-...json   request bodies (with -d)
+  <out>/hdr-NNN.json      request headers, auth redacted (with -d)
   <out>/resp-NNN.txt      response bodies, SSE-decoded (with -D)`
 
 let parsed
@@ -55,6 +62,7 @@ try {
       "out-dir": { type: "string", short: "o", default: "/tmp/opencode/cache-proxy" },
       "dump-requests": { type: "boolean", short: "d", default: false },
       "dump-responses": { type: "boolean", short: "D", default: false },
+      "capture-only": { type: "boolean", short: "c", default: false },
       "no-clear": { type: "boolean", default: false },
       upstream: { type: "string", default: "https://api.anthropic.com" },
       quiet: { type: "boolean", short: "q", default: false },
@@ -77,8 +85,9 @@ if (parsed.values.help) {
 const opts = {
   port: Number(parsed.values.port),
   outDir: parsed.values["out-dir"] as string,
-  dumpReq: parsed.values["dump-requests"] as boolean,
+  dumpReq: (parsed.values["dump-requests"] || parsed.values["capture-only"]) as boolean,
   dumpResp: parsed.values["dump-responses"] as boolean,
+  captureOnly: parsed.values["capture-only"] as boolean,
   clear: !parsed.values["no-clear"],
   upstream: parsed.values.upstream as string,
   quiet: parsed.values.quiet as boolean,
@@ -173,26 +182,52 @@ http
         }
       })
 
-      if (opts.dumpReq) {
-        try {
-          fs.writeFileSync(path.join(opts.outDir, `req-${pad(t)}-${model}.json`), body)
-        } catch {}
-      }
-
-      log(
-        `\n=== REQ #${t} model=${model} ===\n` +
-          `  bodyBytes=${body.length} msgs=${msgs.length} totalContentBlocks=${totalBlocks} sysBlocks=${sysBlocks.length}\n` +
-          `  top-level cache_control: ${topLevelCC ? JSON.stringify(topLevelCC) : "(none)"}\n` +
-          `  system blocks with cache_control: [${sysCC.join(", ")}]\n` +
-          `  message blocks with cache_control: ${msgCC.length ? msgCC.join("; ") : "(none)"}`,
-      )
-
       const headers = Object.fromEntries(
         Object.entries(req.headers).filter(
           ([k]) =>
             k !== "host" && k !== "content-length" && k !== "accept-encoding" && k !== "connection",
         ),
       )
+
+      if (opts.dumpReq) {
+        try {
+          fs.writeFileSync(path.join(opts.outDir, `req-${pad(t)}-${model}.json`), body)
+          const redacted = { ...headers, method: req.method, url: req.url }
+          for (const k of ["authorization", "x-api-key"]) {
+            if (k in redacted) redacted[k] = "<redacted>"
+          }
+          fs.writeFileSync(
+            path.join(opts.outDir, `hdr-${pad(t)}.json`),
+            JSON.stringify(redacted, null, 2),
+          )
+        } catch {}
+      }
+
+      log(
+        `\n=== REQ #${t} ${req.method} ${req.url} model=${model} ===\n` +
+          `  bodyBytes=${body.length} msgs=${msgs.length} totalContentBlocks=${totalBlocks} sysBlocks=${sysBlocks.length}\n` +
+          `  top-level cache_control: ${topLevelCC ? JSON.stringify(topLevelCC) : "(none)"}\n` +
+          `  system blocks with cache_control: [${sysCC.join(", ")}]\n` +
+          `  message blocks with cache_control: ${msgCC.length ? msgCC.join("; ") : "(none)"}`,
+      )
+
+      if (opts.captureOnly) {
+        // 400 is not retried, so `claude -p` exits right after the first request
+        if (req.method === "HEAD") {
+          res.writeHead(200).end()
+        } else {
+          res.writeHead(400, { "content-type": "application/json" })
+          res.end(
+            JSON.stringify({
+              type: "error",
+              error: { type: "invalid_request_error", message: "cache-proxy capture-only" },
+            }),
+          )
+        }
+        log(`  RESP #${t} status=${req.method === "HEAD" ? 200 : 400} (capture-only)`)
+        return
+      }
+
       const upstream = await fetch(opts.upstream + req.url, {
         method: req.method,
         headers: headers as any,
@@ -241,7 +276,9 @@ http
     })
   })
   .listen(opts.port, () => {
-    console.log(`cache-proxy listening on :${opts.port} → ${opts.upstream}`)
+    console.log(
+      `cache-proxy listening on :${opts.port} → ${opts.captureOnly ? "(capture-only, not forwarding)" : opts.upstream}`,
+    )
     console.log(`  log:     ${LOG}`)
     if (opts.dumpReq) console.log(`  reqs:    ${opts.outDir}/req-*.json`)
     if (opts.dumpResp) console.log(`  resps:   ${opts.outDir}/resp-*.txt`)
