@@ -22,7 +22,7 @@ console.log("--- streamText example ---")
 
 const result = streamText({
   model,
-  system: systemPrompt,
+  instructions: systemPrompt,
   prompt: "What is 2+2? Reply in one short sentence.",
 })
 
