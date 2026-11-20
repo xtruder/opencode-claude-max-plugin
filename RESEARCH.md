@@ -4,6 +4,135 @@ This document summarizes the findings from reverse-engineering Claude Code's req
 
 Last updated: 2026-07-26
 
+## Shell edits and missing inline diffs (2026-11-14)
+
+### Findings
+
+Claude Code was updated through Homebrew's `claude-code@latest` cask from
+2.1.323 to 2.1.325 before investigating. The installed OpenCode is v2.3.0.
+
+| Application         | Diff attached to an individual shell call                                     | Other change review                                           |
+| ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Claude Code 2.1.325 | Supported through `bashEditDiffEnabled`, subject to permission/model defaults | Git review and file-tool checkpointing have separate behavior |
+| OpenCode v2.3.0     | Not captured or rendered by the native shell tool                             | Snapshot-based Last turn diff and VCS working-copy diff       |
+
+Claude Code introduced Bash diffs in v2.1.269. Its
+[settings reference](https://code.claude.com/docs/en/settings-reference#basheditdiffenabled)
+explicitly says that recording shows file diffs after a Bash command.
+[Hook documentation](https://code.claude.com/docs/en/hooks#bash) describes
+`tool_response.bashEditDiff`: up to 5 displayed file patches, at most 200 changed
+paths, and flags for incomplete, skipped, or concurrent captures. Background
+commands and read-only commands carry no diff. This is best-effort Git-repository
+capture, with ignored files and submodules excluded.
+
+An offline Messages API replay against the actual 2.1.325 executable confirmed
+that a silent Python edit produces `tool_use_result.bashEditDiff.files[].hunks`.
+The model-facing tool result remained `(Bash completed with no output)`. A
+preexisting dirty line was context in the patch, not attributed to the command.
+Replay script and output are `/tmp/opencode/cc-edit-diff-replay.py` and
+`/tmp/opencode/cc-edit-diff-replay-on.jsonl`. No inference request was forwarded.
+This validates diff capture metadata; terminal rendering is established by the
+official documentation, not an interactive screenshot.
+
+### Model instructions versus UI support
+
+Capture-only requests from Claude Code 2.1.325 on Opus 5.5 showed a conditional
+Bash-first reminder in bypass-permissions mode:
+
+> You can do much of your work through the Bash tool when it is the simpler
+> route [...] make small, mechanical file changes with sed, heredocs, or short
+> scripts instead of the dedicated Read, Edit, or Write tools.
+
+The executable also contains a stricter variant. Selection depends on
+permissions and model/feature configuration, so this is not a universal prompt
+for all Claude Code sessions. The captured ordinary-mode request did not contain
+the reminder. The binary uses the internal `thrifty_sonic` capability for
+Bash-first selection; that internal name is not a supported plugin API.
+
+The plugin does not inject either reminder. A capture from OpenCode v2.3.0 using
+the local plugin confirmed outgoing `Edit` and `Write` tools alongside `Bash`,
+with the existing preference for dedicated tools. `src/tools.ts` forwards
+OpenCode's descriptions and schemas, renaming tools bidirectionally.
+`src/claudecode-system-sonnet55.txt` only says to prefer dedicated tools when one
+fits. Thus missing native editing tools or accidental copying of this
+Bash-first reminder was not demonstrated. Why a particular model chooses Python,
+or which release changed that preference, still requires repeated model-choice
+tests against the same task and context.
+
+### OpenCode implementation evidence
+
+OpenCode findings were verified against official tag v2.3.0:
+
+- [Shell result](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/core/src/tool/plugin/shell.ts#L97-L114)
+  contains execution/output metadata without file patches.
+- [Shell renderer](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/tui/src/routes/session/index.tsx#L2994-L3029)
+  does not consume file-diff metadata. Native edit/patch renderers consume
+  `metadata.files`; write displays submitted file content.
+- [Runner snapshots](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/core/src/session/runner/step.ts#L289-L314)
+  and [session diffs](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/core/src/session/diff.ts#L117-L149)
+  compare filesystem state independently of tool names. Foreground Python edits
+  are eligible for Last turn review when snapshots succeed. Ignore rules,
+  snapshot disablement/failure, large files, and late background writes limit
+  coverage; concurrent writes prevent exact command attribution.
+
+### Options for this plugin
+
+1. Strengthen OpenCode-specific guidance to use native Edit for source changes
+   and Write for new files or complete rewrites, explaining that these calls
+   expose reviewable changes. Reinforce the preference in the outgoing Bash
+   description. This is a behavioral mitigation, not a guarantee.
+2. For Claude-like shell diffs, capture a bounded before/after delta around shell
+   execution with the supported
+   [tool hooks](https://opencode.ai/docs/build/plugins/server#tools), preserve
+   shell identity/output, and attach UI-only metadata. The capture must preserve
+   dirty baselines and handle failures, concurrency, ignores, and background work.
+3. Add shell-diff rendering in OpenCode. OpenCode's public
+   [TUI plugin API](https://opencode.ai/docs/build/plugins/cli) exposes panels
+   and other slots, but no per-tool renderer override. A plugin-owned review
+   panel is possible; native inline rendering requires a core renderer change
+   or a new public tool-renderer API.
+
+Do not relabel arbitrary Bash/Python calls as Edit to borrow its renderer.
+Anthropic provider metadata and API beta flags cannot create filesystem diffs
+or activate client rendering. No plugin behavior was changed by this investigation.
+
+### OpenCode issue history (checked 2026-11-14)
+
+No open issue or PR specifically implementing Claude-style per-shell-call
+filesystem diff capture and inline rendering was found. Searches covered open
+and closed issues, PRs, and discussions. Related current trackers are:
+
+- [Issue #61697](https://github.com/anomalyco/opencode/issues/61697) and
+  [PR #61699](https://github.com/anomalyco/opencode/pull/61699), both **open**,
+  propose transcript-part/tool rendering hooks. These could enable a plugin's
+  inline preview, but do not themselves capture shell-made file changes.
+  The proposal is not a shipped API.
+- [Issue #62211](https://github.com/anomalyco/opencode/issues/62211) and
+  [issue #56096](https://github.com/anomalyco/opencode/issues/56096), both
+  **open**, describe native edit matching failures and shell fallbacks.
+  [Merged PR #60689](https://github.com/anomalyco/opencode/pull/60689) adds
+  closest-lines/already-applied feedback for edit failures. It does not add
+  shell diffs.
+- [Issue #54967](https://github.com/anomalyco/opencode/issues/54967) directly
+  reports terminal/Python editing, but was **closed** pending reproduction and
+  setup details. [Issue #54400](https://github.com/anomalyco/opencode/issues/54400)
+  reports native-edit bypasses and was **closed as duplicate**. Neither is an
+  open shell-diff implementation tracker.
+
+The strongest explicit human-maintainer explanation concerns the renderer
+extension API, not shell diff capture. On the earlier
+[issue #33302](https://github.com/anomalyco/opencode/issues/33302#issuecomment-4779977684),
+maintainer `simonklee` wrote:
+
+> I'm going to close this as not planned for now. Expanding slots is on our
+> radar, especially for the session playback, but we'll probably approach this
+> holistically, not just tool calls.
+
+No explicit maintainer reason for declining per-shell-call diff capture itself
+was found. Attribution, capture cost, and concurrency are implementation concerns;
+they must not be presented as the maintainers' stated reason without a source.
+Automated triage/review comments are not human-maintainer decisions.
+
 ## Credentials
 
 ### Location

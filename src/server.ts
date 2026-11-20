@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
+import { FILE_TOOL_GUIDANCE, registerFileToolReminders } from "./file-tool-guidance.ts"
 import { buildPluginModels, PROVIDER_ID, resolveAuth, selectClaudePromptForModel } from "./index.ts"
 
 // Claude Code's shell keeps its working directory between calls, while OpenCode
@@ -80,7 +81,7 @@ export default {
           event.system.length,
           {
             type: "text",
-            text: `${selectClaudePromptForModel(event.model.id)}\n${SHELL_CWD_NOTE}\n`,
+            text: `${selectClaudePromptForModel(event.model.id)}\n${FILE_TOOL_GUIDANCE}\n${SHELL_CWD_NOTE}\n`,
           },
           ...tail.map((part) =>
             Object.assign({}, part, {
@@ -96,5 +97,6 @@ export default {
       },
       { providerID: PROVIDER_ID },
     )
+    return registerFileToolReminders(ctx, PROVIDER_ID)
   },
 } satisfies Plugin.Plugin

@@ -24,6 +24,8 @@ test("built server registers the executable provider file, not an inline asset",
         }),
     },
     session: { hook: async () => {} },
+    event: { subscribe: async function* () {} },
+    tool: { hook: async () => {} },
   })
   expect(providerPackage).toBe(`aisdk:${pathToFileURL(resolve("build/index.js")).href}`)
   const provider = await import(providerPackage.slice("aisdk:".length))

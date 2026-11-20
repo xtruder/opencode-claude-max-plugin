@@ -4,6 +4,7 @@ import type {
   LanguageModelV3ToolChoice,
 } from "@ai-sdk/provider"
 import type Anthropic from "@anthropic-ai/sdk"
+import { fileToolDescription } from "./file-tool-guidance.ts"
 import { toClaudeToolName } from "./tool-names.ts"
 
 type AnthropicTool = Anthropic.Tool
@@ -40,7 +41,7 @@ export function convertTools(
     .filter((t): t is LanguageModelV3FunctionTool => t.type === "function")
     .map((tool) => ({
       name: toClaudeToolName(tool.name),
-      description: tool.description ?? "",
+      description: fileToolDescription(toClaudeToolName(tool.name), tool.description),
       input_schema: cleanSchema(
         tool.inputSchema as Record<string, any>,
       ) as AnthropicTool["input_schema"],

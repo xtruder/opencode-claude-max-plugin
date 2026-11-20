@@ -105,6 +105,16 @@ Use OpenCode v2's `providers` configuration for model overrides. For example, to
 
 The provider supports model-specific prompts, prompt caching, thinking, tool calls, pause-turn continuation, and server-side refusal fallbacks. See [RESEARCH.md](RESEARCH.md) for request-format details.
 
+### Native file-tool workaround
+
+Claude models can use Bash commands or Python scripts to read and edit files even when native tools are available. OpenCode displays these operations as shell calls, losing the native file previews and inline edit diffs.
+
+This plugin works around that behavior with explicit system instructions and reinforced Edit/Bash descriptions directing Claude to Read, Edit, and Write. The goal is to keep file reads and changes visible to the user.
+
+A Bash hook repeats a short reminder after each additional **32,000 context tokens**, appending it to the next eligible successful Bash result. It measures input-context growth from observed completed model steps, including cache reads and writes, rather than total tokens consumed or the number of Bash calls. Usage settles after tools, so delivery waits for a later Bash call; sessions without Bash calls receive no reminder. The first measured input establishes the baseline; compaction or a context below the baseline resets it. Tracking uses constant-size state per session, without loading or searching message history.
+
+This is a prompt-based workaround, not enforcement or shell-diff support. Bash remains available for general command execution. The reminder is additional tool-result text and may appear in expanded tool output; original result content and metadata are preserved, and the stable system prompt is unchanged. Tracking lasts until the plugin unloads.
+
 ## Subscription usage
 
 The terminal sidebar shows available 5-hour and 7-day usage windows and reset times. Run `/usage` or select it from the command palette for additional model-specific windows and extra-usage status. Press Escape to close the dialog.
